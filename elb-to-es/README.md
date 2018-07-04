@@ -29,10 +29,26 @@ Timeout: 30 sec
 
 ## Building the Deployment Bundle
 
-```
-pip install aws-requests-auth -t `pwd`
+This must be done on a non-Debian Linux (because Debian [broke pip's -t option](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=830892)).
+If that doesn't match what you have, I recommend spinning up a `t2.micro` EC2 instance, running Amazon Linux.
 
-zip -r /tmp/elb_to_es.zip .
+You'll need to have Python 3 with PIP, along with WGet and Zip. If you're running Amazon Linux, this will get them:
+
+```
+sudo yum install python3 python3-pip wget zip
+```
+
+Now you can create the deployment directory, download the Lambda source, install necessary modules, and zip it into an upload bundle.
+
+```
+mkdir elb-to-es
+cd elb-to-es
+
+wget https://raw.githubusercontent.com/kdgregory/aws-misc/master/elb-to-es/lambda_function.py
+
+pip3 install -t `pwd` requests aws-requests-auth
+
+zip -r /tmp/elb-to-es.zip .
 ```
 
 
