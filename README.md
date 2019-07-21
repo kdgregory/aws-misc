@@ -2,6 +2,6 @@ Grab-bag of utilities and other stuff that I use with AWS. Easier to keep track 
 
 | Directory                 | Contents
 |---------------------------|---------
-[cli](cli)                  | Snippets and scripts using the AWS CLI.
 [lambda](lambda)            | Utility Lambdas, most coded in Python.
 [terraform](terraform)      | Terraform examples.
+[utils](utils)              | Utility programs, mostly written in Python.
