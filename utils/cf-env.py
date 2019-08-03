@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 ################################################################################
+# Copyright 2019 Keith D Gregory
+# 
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+# 
+#     http://www.apache.org/licenses/LICENSE-2.0
+# 
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
 #
 # Retrieves parameters and outputs from a named CloudFormation stack and writes
 # environment variable export commands for specified values.
@@ -27,8 +41,8 @@
 #
 # Programmatic use:
 # 
-#   The function retrieveStackValues() retrieves the values for a stack and
-#   returns them as a dictionary.
+#   retrieveStackValues() - Retrieves the parameters and outputs from a named
+#                           stack and returns them as a dictionary.
 #
 ################################################################################
 

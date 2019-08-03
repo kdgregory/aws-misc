@@ -11,8 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+################################################################################
+#
+# Invoked when a Classic Load Balancer writes a logfile to S3. This function
+# extracts the fields from the log lines and writes them to an Elasticsearch
+# cluster.
+#
+# See https://www.kdgregory.com/index.php?page=aws.loggingPipeline#elb
 #
 # Contains example code from https://github.com/DavidMuller/aws-requests-auth
+#
+################################################################################
 
 import boto3
 import hashlib

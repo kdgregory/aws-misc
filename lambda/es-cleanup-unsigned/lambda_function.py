@@ -11,6 +11,15 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+################################################################################
+#
+# This function removes old Elasticsearch indexes from a cluster that can be
+# accessed directly (ie, does not need signed requests). It is configured with
+# a base index name, and the number of indexes to keep, and deletes older
+# indexes until it reaches the desired number (note: requires indexes to be
+# sortable by age).
+#
+################################################################################
 
 import http.client
 import json
