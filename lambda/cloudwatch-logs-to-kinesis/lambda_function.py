@@ -157,22 +157,22 @@ def processBatch(records):
 def buildBatch(records):
     recCount = 0
     byteCount = 0
-
+    
     while recCount < min(len(records), 500) and byteCount < 1048576:
         record = records[recCount]
         recCount += 1
         byteCount += len(record['Data']) + len(record['PartitionKey'])
-
+    
     # we already added the record before we knew the size, so we'll compensate
     if byteCount > 1048576:
         recCount = recCount - 1
-
+    
     # this should never happen: it would require a max-size log event and a
     # long partition key
     if recCount == 0:
         logging.warn("throwing out too-long message")
         return [], records[1:]
-
+    
     return records[:recCount], records[recCount:]
 
 
@@ -181,12 +181,20 @@ def buildBatch(records):
 def processResponse(response, records):
     if response['FailedRecordCount'] == 0:
         return []
-
+    
     result = []
+    droppedRecordCount = 0
     for ii in range(len(response['Records'])):
         entry = response['Records'][ii]
-        if entry.get('ErrorCode'):
+        errorCode = entry.get('ErrorCode')
+        if errorCode == 'ProvisionedThroughputExceededException':
             result.append(records[ii])
-
-    logging.info(f"requeueing {len(result)} records because they weren't sent")
+        elif errorCode:
+            droppedRecordCount += 1
+    
+    if droppedRecordCount > 0:
+        logging.warn(f'dropped {droppedRecordCount} records due to internal errors')
+    if len(result) > 0:
+        logging.info(f"requeueing {len(result)} records due to throughput-exceeded")
+    
     return result
