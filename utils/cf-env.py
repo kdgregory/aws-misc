@@ -41,8 +41,8 @@
 #
 # Programmatic use:
 # 
-#   retrieveStackValues() - Retrieves the parameters and outputs from a named
-#                           stack and returns them as a dictionary.
+#   retrieve_stack_values() - Retrieves the parameters and outputs from a named
+#                             stack and returns them as a dictionary.
 #
 ################################################################################
 
@@ -50,7 +50,7 @@ import boto3
 import sys
 
 
-def retrieveStackValues(stack_name):
+def retrieve_stack_values(stack_name):
     """Retrieves the named stack's parameters and outputs.
 
        The output is a dictionary, where the key is the logical ID of the
@@ -69,7 +69,7 @@ def retrieveStackValues(stack_name):
 
 
 if __name__ == "__main__":
-    lookup = retrieveStackValues(sys.argv[1])
+    lookup = retrieve_stack_values(sys.argv[1])
     for arg in sys.argv[2:]:
         kv = arg.split('=')
         val = lookup.get(kv[1])

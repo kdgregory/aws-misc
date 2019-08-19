@@ -34,11 +34,11 @@
 #
 # Programmatic use:
 #
-#   lookupRoleArn(roleName) - Retrieves the ARN corresponding to a simple name
-#   generateSessionName()   - Generates a UUID-based session ID that includes
-#                             the user's account and username if available.
-#   assumeRole(nameOrArn)   - Returns credentials for an assumed role, specified
-#                             either by name or ARN.
+#   lookup_role_arn(roleName) - Retrieves the ARN corresponding to a simple name
+#   generate_session_name()   - Generates a UUID-based session ID that includes
+#                               the user's account and username if available.
+#   assume_role(nameOrArn)    - Returns credentials for an assumed role, specified
+#                               either by name or ARN.
 #
 ################################################################################
 
@@ -49,11 +49,11 @@ import re
 import sys
 import uuid
 
-iamClient = boto3.client('iam')
-stsClient = boto3.client('sts')
+iam_client = boto3.client('iam')
+sts_client = boto3.client('sts')
 
 
-def lookupRoleArn(roleName):
+def lookup_role_arn(roleName):
     """ Returns the ARN for a role with the given name, None if it doesn't exist.
 
         The name should include any path (eg: "/service-role/Foo", but it will be
@@ -66,18 +66,18 @@ def lookupRoleArn(roleName):
     else:
         prefix = "/"
         baseName = roleName
-    for page in iamClient.get_paginator('list_roles').paginate(PathPrefix=prefix):
+    for page in iam_client.get_paginator('list_roles').paginate(PathPrefix=prefix):
         for role in page['Roles']:
             if baseName == role['RoleName']:
                 return role['Arn']
     raise Exception(f'Unable to find role with name "{roleName}"')
 
 
-def generateSessionName():
+def generate_session_name():
     """ Creates a session name based based on the account and name of the invoking
         user (if known) and a UUID.
     """
-    invokerArn = stsClient.get_caller_identity()['Arn']
+    invokerArn = sts_client.get_caller_identity()['Arn']
     matched = re.fullmatch(r"arn:aws:iam::([0-9]+):user/(.*)", invokerArn)
     if matched:
         return matched.group(1) + "-" + matched.group(2) + "-" + str(uuid.uuid4())
@@ -86,7 +86,7 @@ def generateSessionName():
 
 
 
-def assumeRole(arnOrName):
+def assume_role(arnOrName):
     """ Assumes a role and returns its credentials.
 
         May be passed either a role name (in which case the ARN is retrieved) or an
@@ -95,15 +95,15 @@ def assumeRole(arnOrName):
     if re.fullmatch("arn:aws:iam::[0-9]*:role/.+", arnOrName):
         roleArn = arnOrName
     else:
-        roleArn = lookupRoleArn(arnOrName)
-    return stsClient.assume_role(
+        roleArn = lookup_role_arn(arnOrName)
+    return sts_client.assume_role(
         RoleArn=roleArn,
-        RoleSessionName=generateSessionName()
+        RoleSessionName=generate_session_name()
         )['Credentials']
 
 
 if __name__ == "__main__":
-    credentials = assumeRole(sys.argv[1])
+    credentials = assume_role(sys.argv[1])
     shell=os.environ.get('SHELL', '/bin/bash')
     new_env = os.environ
     new_env['AWS_ACCESS_KEY']        = credentials['AccessKeyId']
