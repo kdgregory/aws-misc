@@ -1,0 +1,29 @@
+# Roles
+
+## Trust relationship: MFA-enforced assumable role
+
+Requires an MFA token to be provided when assuming a role.
+
+
+```
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:root"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "Bool": {
+          "aws:MultiFactorAuthPresent": "true"
+        }
+      }
+    }
+  ]
+}
+```
+
+
+# Policies
