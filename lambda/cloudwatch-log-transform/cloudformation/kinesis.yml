@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "Creates a Kinesis stream"
+
+Parameters:
+
+  StreamName:
+    Description:                        "Name of the Kinesis stream"
+    Type:                               "String"
+    Default:                            "CloudWatchSubscriptionDestination"
+
+Resources:
+
+  KinesisStream:
+    Type:                               "AWS::Kinesis::Stream"
+    Properties:
+      Name:                             !Ref StreamName
+      ShardCount:                       1
+
+  SubscriptionRole:
+    Type:                               "AWS::IAM::Role"
+    Properties:
+      RoleName:                         !Sub "${StreamName}-DeliveryRole"
+      AssumeRolePolicyDocument:
+        Version:                        "2012-10-17"
+        Statement:
+          Effect:                       "Allow"
+          Principal:
+            Service:                    !Sub "logs.${AWS::Region}.amazonaws.com"
+          Action:                       "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName:                   "KinesisWriter"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "kinesis:Describe*"
+                -                       "kinesis:CreateStream"
+                -                       "kinesis:Put*"
+              Resource:                 !GetAtt KinesisStream.Arn

@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "Subscribes a CloudWatch log group to a Kinesis stream"
+
+Parameters:
+
+  LogGroupName:
+    Description:                        "Name of the CloudWatch log group that will be subscribed (omit for no subscription)"
+    Type:                               "String"
+    Default:                            "AppenderExample"
+
+  StreamName:
+    Description:                        "Name of the Kinesis stream that will receive log events"
+    Type:                               "String"
+    Default:                            "CloudWatchSubscriptionDestination"
+
+Resources:
+
+  Subscription:
+    Type:                               "AWS::Logs::SubscriptionFilter"
+    Properties:
+      LogGroupName:                     !Ref LogGroupName
+      FilterPattern:                    ""
+      DestinationArn:                   !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${StreamName}"
+      RoleArn:                          !Sub "arn:aws:iam::${AWS::AccountId}:role/${StreamName}-DeliveryRole"

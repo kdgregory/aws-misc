@@ -5,7 +5,7 @@ Grab-bag of utilities and other stuff that I use with AWS. Easier to keep track 
 Directory                                                           | Contents
 --------------------------------------------------------------------|----------
 [cloudwatch-log-cleanup](lambda/cloudwatch-log-cleanup)             | Deletes CloudWatch log streams that are empty because of the log group's retention period.
-[cloudwatch-logs-to-kinesis](lambda/cloudwatch-logs-to-kinesis)     | Destination for a CloudWatch Logs subscription that transforms messages to JSON and puts them on a Kinesis stream.
+[cloudwatch-log-transform](lambda/cloudwatch-log-transform)         | Transforms CloudWatch Logs events from a Kinesis stream.
 [elb-to-es](lambda/elb-to-es)                                       | Imports Elastic Load Balancer logfiles into Elasticsearch.
 [es-cleanup-signed](lambda/es-cleanup-signed)                       | Cleans up old indexes from an Elasticsearch cluster. See [this](https://www.kdgregory.com/index.php?page=aws.loggingPipeline) for more info.
 [es-cleanup-unsigned](lambda/es-cleanup-unsigned)                   | An Elasticsearch cleanup Lambda for clusters that allow unsigned access.

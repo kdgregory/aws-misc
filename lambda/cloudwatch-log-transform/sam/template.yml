@@ -1,27 +1,23 @@
 AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "A Lambda function that receives CloudWatch Logs events from one Kinesis stream and writes them to another"
 Transform:                              "AWS::Serverless-2016-10-31"
-Description:                            "Creates a Lambda function to receive CloudWatch Logs events and send them to Kinesis"
 
 Parameters:
 
   LambdaName:
     Description:                        "Name of the Lambda function to create"
     Type:                               "String"
-    Default:                            "CloudwatchLogsSubscriber"
+    Default:                            "CloudWatchLogsTransformer"
 
-  LogGroupName:
-    Description:                        "Name of the CloudWatch log group that will be subscribed (omit for no subscription)"
+  SourceStreamName:
+    Description:                        "Name of the source Kinesis stream"
+    Type:                               "String"
+    Default:                            "CloudWatchSubscriptionDestination"
+
+  DestinationStreamName:
+    Description:                        "Name of the Kinesis stream that will receive transformed log events"
     Type:                               "String"
     Default:                            "AppenderExample"
-
-  KinesisStreamName:
-    Description:                        "Name of the Kinesis stream that will receive log events"
-    Type:                               "String"
-    Default:                            "AppenderExample"
-
-Conditions:
-
-    CreateSubscription:                 !Not [ !Equals [ !Ref LogGroupName, "" ]]
 
 Resources:
 
@@ -41,19 +37,31 @@ Resources:
         -                               "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
       Policies:
         -
-          PolicyName:                   "WriteToKinesis"
+          PolicyName:                   "ReadFromSource"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "kinesis:ListStreams"
+                -                       "kinesis:DescribeStream"
+                -                       "kinesis:GetShardIterator"
+                -                       "kinesis:GetRecords"
+              Resource:                 [ !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}" ]
+        -
+          PolicyName:                   "WriteToDestination"
           PolicyDocument:
             Version:                    "2012-10-17"
             Statement:
               Effect:                   "Allow"
               Action:                   [ "kinesis:PutRecords" ]
-              Resource:                 [ !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${KinesisStreamName}" ]
+              Resource:                 [ !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${DestinationStreamName}" ]
 
   LambdaFunction:
     Type:                               "AWS::Serverless::Function"
     Properties:
       FunctionName:                     !Ref LambdaName
-      Description:                      "Responds to events from a CloudWatch Logs subscription, sending them to Kinesis"
+      Description:                      "Responds to CloudWatch Logs events delivered via Kinesis stream"
       Role:                             !GetAtt LambdaRole.Arn
       Runtime:                          "python3.7"
       CodeUri:                          "src/"
@@ -62,21 +70,14 @@ Resources:
       Timeout:                          60
       Environment: 
         Variables:
-          STREAM_NAME:                  !Ref KinesisStreamName
+          DESTINATION_STREAM_NAME:      !Ref DestinationStreamName
 
-  LambdaPermission:
-    Type:                               "AWS::Lambda::Permission"
+  EventSource:
+    Type:                               "AWS::Lambda::EventSourceMapping"
     Properties: 
+      EventSourceArn:                   !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}" 
       FunctionName:                     !Ref LambdaFunction
-      Action:                           "lambda:InvokeFunction"
-      Principal:                        !Sub "logs.${AWS::Region}.amazonaws.com"
-      SourceAccount:                    !Ref 'AWS::AccountId'
-
-
-  Subscription:
-    Type:                               "AWS::Logs::SubscriptionFilter"
-    Condition:                          CreateSubscription
-    Properties:
-      LogGroupName:                     !Ref LogGroupName
-      FilterPattern:                    ""
-      DestinationArn:                   !GetAtt LambdaFunction.Arn
+      Enabled:                          true
+      StartingPosition:                 LATEST
+      BatchSize:                        100
+      MaximumBatchingWindowInSeconds:   30
