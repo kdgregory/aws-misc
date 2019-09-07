@@ -15,6 +15,7 @@ Directory                                                           | Contents
 
 Directory                                                           | Contents
 --------------------------------------------------------------------|----------
+[provision_through_bastion](terraform/provision_through_bastion)    | Skeleton that provisions an EC2 instance by tunneling through a bastion host.
 [users](terraform/users)                                            | Creates users, groups, and roles in a multi-account organization.
 
 

@@ -1,7 +1,2 @@
 # Vim state files
 .*.swp
-
-# Terraform artifacts (would be checked in to real deployment)
-.terraform/
-terraform.tfstate
-terraform.tfstate.backup

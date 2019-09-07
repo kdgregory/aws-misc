@@ -1,0 +1,5 @@
+# in the real world, the tfstate files would be checked in
+
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup
