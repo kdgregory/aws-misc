@@ -14,12 +14,15 @@
 
 provider "aws" {}
 
+data "aws_caller_identity" "current" {}
 
-variable "child-account-ids" {
+
+variable "account-ids" {
     type = map
     default = {
-        "dev"   = "CHANGEME",
-        "stage" = "CHANGEME"
+      "dev"  = "123456789012",
+      "qa"   = "234567890123"
+      "prod" = "345678901234"
     }
 }
 
@@ -39,11 +42,11 @@ variable "groups" {
 variable "group_members" {
     type = map(list(string))
     default = {
-      "developers"  = [ "user1", "user2" ],
-      "ops"         = [ "user3" ]
+      "user1"  = [ "developers", "ops" ],
+      "user2"  = [ "developers" ],
+      "user3"  = [ "ops" ]
     }
 }
-
 
 variable "group_permissions" {
     type = map(list(list(string)))
@@ -51,18 +54,65 @@ variable "group_permissions" {
       "developers"  = [
                         [ "dev",    "Management" ],
                         [ "dev",    "Destructive" ],
-                        [ "stage",  "Management" ]
+                        [ "prod",   "Management" ]
                       ],
       "ops"         = [
                         [ "dev",    "Administrator" ],
-                        [ "stage",  "Administrator" ]
+                        [ "qa",     "Administrator" ],
+                        [ "prod",   "Administrator" ]
                       ]
     }
 }
 
+################################################################################
+# this policy lets users do basic account maintenance tasks
+################################################################################
+
+data "aws_iam_policy_document" "base-user-policy" {
+  statement {
+    actions = [
+      "iam:UploadSSHPublicKey",
+      "iam:UpdateSSHPublicKey",
+      "iam:UpdateAccessKey",
+      "iam:List*",
+      "iam:Get*",
+      "iam:EnableMFADevice",
+      "iam:DeleteSSHPublicKey",
+      "iam:DeleteAccessKey",
+      "iam:CreateAccessKey",
+      "iam:ChangePassword"
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:user/$${aws:username}"
+    ]
+  }
+  statement {
+    actions = [
+      "iam:DeleteVirtualMFADevice"
+    ]
+    resources = [
+      "arn:aws:iam::${data.aws_caller_identity.current.account_id}:mfa/$${aws:username}"
+    ]
+  }
+  statement {
+    actions = [
+      "iam:ListVirtualMFADevices",
+      "iam:CreateVirtualMFADevice"
+    ]
+    resources = [
+      "*"
+    ]
+  }
+}
+
+resource "aws_iam_policy" "base_user_policy" {
+  name        = "BaseUserPolicy"
+  description = "Grants users the ability to modify their accounts"
+  policy      = "${data.aws_iam_policy_document.base-user-policy.json}" 
+}
 
 ################################################################################
-# all users have some basic configuration, but need to be enabled manually
+# all users have some basic configuration, but need to be enabled manually;
 # force_destroy lets us remove users that have customized their logins
 ################################################################################
 
@@ -72,29 +122,10 @@ resource "aws_iam_user" "users" {
   force_destroy = true
 }
 
-
-data "aws_iam_policy_document" "base-user-policy" {
-  statement {
-    sid = "1"
-    actions = [
-        "iam:ChangePassword",
-        "iam:CreateAccessKey",
-        "iam:CreateVirtualMFADevice",
-        "iam:EnableMFADevice",
-        "sts:GetCallerIdentity"
-    ]
-    resources = [
-      "arn:aws:iam::*:user/$${aws:username}"
-    ]
-  }
-}
-
-
-resource "aws_iam_user_policy" "base-user-policy" {
-  count = length(var.users)
-  name  = "BaseUserPolicy"
-  user = "${var.users[count.index]}"
-  policy = "${data.aws_iam_policy_document.base-user-policy.json}" 
+resource "aws_iam_user_policy_attachment" "base_user_policy" {
+  count      = length(var.users)
+  user       = "${var.users[count.index]}"
+  policy_arn = "${aws_iam_policy.base_user_policy.arn}"
 }
 
 
@@ -108,11 +139,10 @@ resource "aws_iam_group" "groups" {
 }
 
 
-resource "aws_iam_group_membership" "group-membership" {
-  count = length(var.groups)
-  name = "group-membership-${count.index}"
-  group = "${var.groups[count.index]}"
-  users = "${var.group_members[var.groups[count.index]]}"
+resource "aws_iam_user_group_membership" "group-membership" {
+  count = length(var.users)
+  user  = "${var.users[count.index]}"
+  groups = "${var.group_members[var.users[count.index]]}"
 }
 
 
@@ -125,7 +155,7 @@ data "aws_iam_policy_document" "group-policies" {
     ]
     resources = [
       for assoc in var.group_permissions[var.groups[count.index]]:
-        "arn:aws:iam::${var.child-account-ids[assoc[0]]}:role/${assoc[1]}"
+        "arn:aws:iam::${var.account-ids[assoc[0]]}:role/${assoc[1]}"
     ]
   }
 }
