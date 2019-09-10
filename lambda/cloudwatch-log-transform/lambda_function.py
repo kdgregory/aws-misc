@@ -65,7 +65,7 @@ def process_input_record(record):
             logStream = data['logStream']
             events = data.get('logEvents', [])
             logging.info(f'processing {len(events)} events from group "{logGroup}" / stream "{logStream}"')
-            logging.debug(f'input messages: {json.dumps(events)}')
+            logging.debug(f'input events: {json.dumps(events)}')
             return [transform_log_event(logGroup, logStream, event) for event in events]
         elif message_type == 'CONTROL_MESSAGE':
             logging.info('skipping control message')
@@ -164,7 +164,7 @@ def opt_add_lambda_status(result, message):
 ## makes a best-effort attempt to write all messages to Kinesis, batching them
 ## as needed to meet the limits of PutRecords
 def write_to_kinesis(listOfEvents):
-    records = transform_records(listOfEvents)
+    records = prepare_records(listOfEvents)
     while records:
         records = process_batch(records)
         if (records):
@@ -173,7 +173,7 @@ def write_to_kinesis(listOfEvents):
 
 
 ## packages the passed log events into records for PutRecords
-def transform_records(listOfEvents):
+def prepare_records(listOfEvents):
     records = []
     for event in listOfEvents:
         partitionKey = event.get('cloudwatch', {}).get('logStream', 'DEFAULT')
@@ -196,9 +196,9 @@ def process_batch(records):
             StreamName=kinesisStream,
             Records=toBeSent
         )
-        return toBeReturned + process_response(response, toBeSent)
+        return process_response(response, toBeSent) + toBeReturned 
     except kinesisClient.exceptions.ProvisionedThroughputExceededException:
-        logging.warn(f'received throughput exceeded on stream {kinesisStream}; retrying all messages')
+        logging.warn(f'received throughput-exceeded on stream {kinesisStream}; retrying all messages')
         return toBeSent + toBeReturned
 
 
@@ -220,7 +220,7 @@ def build_batch(records):
     # this should never happen: it would require a max-size log event and a
     # long partition key
     if recCount == 0:
-        logging.warn("throwing out too-long message")
+        logging.warn('throwing out too-long message')
         return [], records[1:]
     
     return records[:recCount], records[recCount:]
@@ -243,8 +243,8 @@ def process_response(response, records):
             droppedRecordCount += 1
     
     if droppedRecordCount > 0:
-        logging.warn(f'dropped {droppedRecordCount} records due to internal errors')
+        logging.warn(f'dropped {droppedRecordCount} records due to Kinesis internal errors')
     if len(result) > 0:
-        logging.info(f"requeueing {len(result)} records due to throughput-exceeded")
+        logging.info(f'requeueing {len(result)} records due to throughput-exceeded')
     
     return result
