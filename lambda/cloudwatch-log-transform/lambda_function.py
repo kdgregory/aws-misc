@@ -38,9 +38,12 @@ kinesisClient = boto3.client('kinesis')
 kinesisStream = os.environ['DESTINATION_STREAM_NAME']
 
 pythonLoggingRegex = re.compile(r'\[([A-Z]+)]\s+([0-9]{4}-.*Z)\s+([-0-9a-fA-F]{36})\s+(.*)')
-lambdaStartRegex   = re.compile(r'START RequestId:\s+([-0-9a-fA-F]{36})\s+Version:\s+(.+)')
-lambdaFinishRegex  = re.compile(r'END RequestId:\s+([-0-9a-fA-F]{36})')
-lambdaReportRegex  = re.compile(r'REPORT RequestId:\s+([-0-9a-fA-F]{36})\s+Duration:\s+([0-9.]+)\s+ms\s+Billed Duration:\s+([0-9]+)\s+ms\s+Memory Size:\s+([0-9]+)\s+MB\s+Max Memory Used:\s+([0-9]+)\s+MB')
+
+lambdaStartRegex    = re.compile(r'START RequestId:\s+([-0-9a-fA-F]{36})\s+Version:\s+(.+)')
+lambdaFinishRegex   = re.compile(r'END RequestId:\s+([-0-9a-fA-F]{36})')
+lambdaReportRegex   = re.compile(r'REPORT RequestId:\s+([-0-9a-fA-F]{36})\s+Duration:\s+([0-9.]+)\s+ms\s+Billed Duration:\s+([0-9]+)\s+ms\s+Memory Size:\s+([0-9]+)\s+MB\s+Max Memory Used:\s+([0-9]+)\s+MB')
+lambdaExtendedRegex = re.compile(r'.*Init Duration:\s+([0-9.]+)\s+ms')
+lambdaXRayRegex     = re.compile(r'.*XRAY TraceId:\s+([0-9a-fA-F-]+)\s+SegmentId:\s+([0-9a-fA-F]+)\s+Sampled:\s+(true|false)')
 
 
 def lambda_handler(event, context):
@@ -85,6 +88,8 @@ def transform_log_event(logGroup, logStream, event):
     if not result:
         result = try_parse_python_log(message)
     if not result:
+        result = try_parse_lambda_status(message)
+    if not result:
         result = {
             'level': 'INFO',
             'message': message
@@ -95,7 +100,6 @@ def transform_log_event(logGroup, logStream, event):
         'logStream': logStream
     }
     opt_add_timestamp(result, event)
-    opt_add_lambda_status(result, message)
     return result
 
 
@@ -122,6 +126,54 @@ def try_parse_python_log(message):
         }
 
 
+## if the message matches one of the Lambda status messages, extracts relevant information
+def try_parse_lambda_status(message):
+    try:
+        if message.startswith('START RequestId:'):
+            match = lambdaStartRegex.match(message)
+            if match:
+                data = {
+                    'requestId':    match.group(1),
+                    'version':      match.group(2)
+                }
+        elif message.startswith('END RequestId:'):
+            match = lambdaFinishRegex.match(message)
+            if match:
+                data = {
+                    'requestId':    match.group(1)
+                }
+        elif message.startswith('REPORT RequestId:'):
+            message = message.replace('\n', '\t')
+            match = lambdaReportRegex.match(message)
+            if match:
+                data = {
+                    'requestId':    match.group(1),
+                    'durationMs':   float(match.group(2)),
+                    'billedMs':     float(match.group(3)),
+                    'maxMemoryMb':  int(match.group(4)),
+                    'usedMemoryMb': int(match.group(5))
+                }
+                # these next two appear to be rolling out on a per-region basis,
+                # so aren't part of the base regex
+                match = lambdaExtendedRegex.match(message)
+                if match:
+                    data['initialDurationMs'] = float(match.group(1))
+                match = lambdaXRayRegex.match(message)
+                if match:
+                    data['XRayTraceId'] = match.group(1)
+                    data['XRaySegment'] = match.group(2)
+                    data['XRaySampled'] = match.group(3)
+        if data:
+            return {
+                'level':   'INFO',
+                'message': message,
+                'lambda':  data
+            }
+    except:
+        pass
+
+
+
 ## if the passed data field already has a "timestamp" element, it's returned unchanged
 ## otherwise the passed event timestamp is formatted and added to the message
 def opt_add_timestamp(data, event):
@@ -129,36 +181,6 @@ def opt_add_timestamp(data, event):
         return
     dt = datetime.fromtimestamp(event['timestamp'] / 1000.0, tz=timezone.utc)
     data['timestamp'] = dt.isoformat()
-
-
-## if the message matches one of the Lambda status messages, adds extracted information
-def opt_add_lambda_status(result, message):
-    try:
-        if message.startswith('START RequestId:'):
-            match = lambdaStartRegex.match(message)
-            if match:
-                result['lambda'] = {
-                    'requestId':    match.group(1),
-                    'version':      match.group(2)
-                }
-        elif message.startswith('END RequestId:'):
-            match = lambdaFinishRegex.match(message)
-            if match:
-                result['lambda'] = {
-                    'requestId':    match.group(1)
-                }
-        elif message.startswith('REPORT RequestId:'):
-            match = lambdaReportRegex.match(message)
-            if match:
-                result['lambda'] = {
-                    'requestId':    match.group(1),
-                    'durationMs':   float(match.group(2)),
-                    'billedMs':     float(match.group(3)),
-                    'maxMemoryMb':  int(match.group(4)),
-                    'usedMemoryMb': int(match.group(5))
-                }
-    except:
-        pass
 
 
 ## makes a best-effort attempt to write all messages to Kinesis, batching them
