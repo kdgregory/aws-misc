@@ -9,6 +9,7 @@ Directory                                                           | Contents
 [elb-to-es](lambda/elb-to-es)                                       | Imports Elastic Load Balancer logfiles into Elasticsearch.
 [es-cleanup-signed](lambda/es-cleanup-signed)                       | Cleans up old indexes from an Elasticsearch cluster. See [this](https://www.kdgregory.com/index.php?page=aws.loggingPipeline) for more info.
 [es-cleanup-unsigned](lambda/es-cleanup-unsigned)                   | An Elasticsearch cleanup Lambda for clusters that allow unsigned access.
+[json-logging](lambda/json-logging)                                 | A module that will configure the Python logging framework for JSON output with Lambda-specific metadata.
 
 
 ## Terraform
