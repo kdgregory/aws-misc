@@ -16,12 +16,15 @@
 ################################################################################
 
 """
-Starts a new shell with environment variables for an assumed role. Attempts
-to find the maximum duration by starting at 12 hours and working down.
-    
+
+Assumes a role, with optional MFA code, and either starts a new shell or runs
+an arbitrary command using that role. Attempts to find the maximum allowed role
+duration, by starting at 8 hours and working down.
+
 Invocation:
 
     assume-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ]
+    run-with-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ] COMMAND
 
 Where:
 
@@ -29,13 +32,18 @@ Where:
                 the current account.
     ROLE_ARN    is the ARN of an assumable role from any account.
     MFA_CODE    is the 6-digit code from a virtual MFA device.
+    COMMAND     is an arbitrary command.
 
 Caveats:
 
-    You can't load credentials in your .bashrc, or they will overwrite the
-    assumed-role credentials.
+    Only supports virtual MFA devices (this is because hardware devices are
+    identified differently).
 
-    Doesn't support hardware MFA devices.
+    For run-with-role, if your command name is a six-digit number, it will
+    be interpreted as an MFA code. Unlikely.
+
+    For assume-role, if you load your AWS credentials in .bashrc, they'll
+    overwrite the assumed-role credentials. Don't do this.
 """
 
 import boto3
@@ -135,24 +143,49 @@ def assume_role(arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=Non
                 raise "exceeded allowed duration but requested duration is already at minimum"
             desiredDuration = max(900, int(desiredDuration * durationRatio))
 
+def run_with_role(command, printDuration, arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=None):
+    """ Runs an arbitrary command after assuming a role.
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2 or len(sys.argv) > 3:
-        print(__doc__)
-        sys.exit(1)
+        The "command" argument is an array that's passed to execvpe(); the first element
+        of this array will be reported as the command name.
 
-    kwargs = { 'desiredDuration': 43200, 'durationRatio': 0.5 }
-    if len(sys.argv) == 3:
-        kwargs['mfaCode'] = sys.argv[2]
-    
-    credentials = assume_role(sys.argv[1], **kwargs)
-    print(f'assumed role duration = {actualDuration} seconds ({actualDuration / 3600.0} hours)')
-    
-    shell=os.environ.get('SHELL', '/bin/bash')
+        The "printDuration" argument is a boolean that indicates whether to print the
+        duration that the role will be assumed.
+
+        All other arguments are per assume_role().
+    """
+    credentials = assume_role(arnOrName, mfaCode, desiredDuration, durationRatio)
+    if printDuration:
+        print(f'assumed role duration = {actualDuration} seconds ({actualDuration / 3600.0} hours)')
     new_env = os.environ
     new_env['AWS_ACCESS_KEY']        = credentials['AccessKeyId']
     new_env['AWS_ACCESS_KEY_ID']     = credentials['AccessKeyId']
     new_env['AWS_SECRET_KEY']        = credentials['SecretAccessKey']
     new_env['AWS_SECRET_ACCESS_KEY'] = credentials['SecretAccessKey']
     new_env['AWS_SESSION_TOKEN']     = credentials['SessionToken']
-    os.execvpe(shell, [shell], new_env)
+    os.execvpe(command[0], command, new_env)
+
+
+if __name__ == "__main__":
+    kwargs = { 'desiredDuration': 43200, 'durationRatio': 0.5 }
+    if os.path.basename(__file__) == 'assume-role.py':
+        if len(sys.argv) < 2 or len(sys.argv) > 3:
+            print(__doc__)
+            sys.exit(1)
+        shell=os.environ.get('SHELL', '/bin/bash')
+        if len(sys.argv) == 3:
+            kwargs['mfaCode'] = sys.argv[2]
+        run_with_role([shell], True, sys.argv[1], **kwargs)
+    elif os.path.basename(__file__) == 'run-with-role.py':
+        if len(sys.argv) < 2:
+            print(__doc__)
+            sys.exit(1)
+        if re.match("^\d{6}$", sys.argv[2]):
+            kwargs['mfaCode'] = sys.argv[2]
+            command = sys.argv[3:]
+        else:
+            command = sys.argv[2:]
+        run_with_role(command, False, sys.argv[1], **kwargs)
+    else:
+        print(__doc__)
+        sys.exit(1)
