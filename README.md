@@ -38,3 +38,4 @@ Isolated pieces of code or configuration, intended to be pasted elsewhere.
 
 * [AWS CLI](snippets/cli.md)
 * [IAM Roles/Policies](snippets/iam.md)
+* [Python functions](snippets/python.md)
