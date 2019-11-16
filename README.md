@@ -31,4 +31,10 @@ Program                                                             | Descriptio
 [cf-env.py](utils/cf-env.py)                                        | Populates environment variables from the parameters and outputs of a CloudFormation stack.
 [assume-role.py](utils/assume-role.py)                              | Spawns a subshell with authentication credentials for a specified role.
 
-In addition, I have a collection of command-line snippets [here](cli.md).
+
+## Snippets
+
+Isolated pieces of code or configuration, intended to be pasted elsewhere.
+
+* [AWS CLI](snippets/cli.md)
+* [IAM Roles/Policies](snippets/iam.md)
