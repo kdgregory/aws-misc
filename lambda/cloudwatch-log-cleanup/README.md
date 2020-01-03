@@ -18,3 +18,4 @@ will end up with lots of empty streams.
 * `logs:DeleteLogStream`
 * `logs:DescribeLogGroups`
 * `logs:DescribeLogStreams`
+* `logs:GetLogEvents`
