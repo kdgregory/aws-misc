@@ -1,2 +1,10 @@
 # Vim state files
 .*.swp
+
+# Python compiled code
+*.pyc
+__pycache__
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
