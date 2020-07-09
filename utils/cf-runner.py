@@ -14,26 +14,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
-#
-# Creates or updates a CloudFormation stack.
-#
-# This script will retrieve parameter values from a provided parameter store,
-# update that parameter store with any outputs from the stack, and wait for
-# the stack to be successfully created.
-#
-# Invocation:
-#
-#   cf-runner.py TEMPLATE_PATH STACK_NAME PARAMS_PATH [ NAME=VALUE [...] ]
-#
-# Where:
-#
-#   TEMPLATE_PATH is the path to the CloudFormation template.
-#   STACK_NAME    is the stack to be created or updated.
-#   PARAMS_PATH   is the path to a JSON file containing the parameter store.
-#   NAME          is the name of a template-specific parameter.
-#   VALUE         is the value for that parameter.
-#
-################################################################################
+
+"""
+Creates or updates a CloudFormation stack.
+
+This script is optimized for the case where you're deploying multiple related
+stacks. To that end, it retrieves saved configuration from a JSON file, and
+writes stack outputs to that file after successful create/update. An example
+use case is an infrastructure stack that outputs "VpcId", which is then
+consumed by application stacks.
+
+Invocation:
+
+  cf-runner.py STACK_NAME TEMPLATE_PATH CONFIG_FILE [ NAME=VALUE [...] ]
+
+Where:
+
+  STACK_NAME    is the stack to be created or updated.
+  TEMPLATE_PATH is the path to the CloudFormation template.
+  CONFIG_FILE   is the path to a JSON file containing saved configuration.
+  NAME          is the name of a template-specific parameter.
+  VALUE         is the value for that parameter.
+"""
+
 
 import boto3
 import json
@@ -42,75 +45,106 @@ import sys
 import time
 
 
-class Params:
-    """ Manages the parameter store and overrides.
+class Config:
+    """ Manages the saved configuration and overrides.
 
-        The parameter store is loaded from / written to a file, and is
-        used to provide cross-stack configuration.
+        Saved configuration is loaded when this object is constructed,
+        but written explicitly.
 
         There are two types of overrides: the first, "cli_params" is a
         list of "NAME=VALUE" strings, assumed to be from a command-line
         invocation. The second, "overrides", is a dict, assumed to be
         built by the program. Of these, "cli_params" takes precedence,
-        with the parameter store being lowest on the chain.
+        with the default parameter file being lowest on the chain.
 
-        These overrides are not written to the parameter store; they are
+        Overrides are not written to the configuration file; they are
         valid for only the current instance.
     """
 
-    def __init__(self, param_store_path, cli_params=[], overrides={}):
-        self.param_store_path = param_store_path
-        self.param_store = {}
-        if os.path.exists(self.param_store_path):
-            with open(self.param_store_path) as f:
-                self.param_store = json.load(f)
+    def __init__(self, saved_config_path, cli_params=[], overrides={}):
+        self.saved_config_path = saved_config_path
+        self.saved_config = {}
+        if os.path.exists(self.saved_config_path):
+            with open(self.saved_config_path) as f:
+                self.saved_config = json.load(f)
         self.cli_params = {}
         for arg in cli_params:
             kv = arg.split('=')
             self.cli_params[kv[0]] = kv[1]
         self.overrides = overrides
 
-    def get(self,name):
-        """ Returns the value of a parameter, applying overrides (CLI first,
-            then dictory).
+    def get(self, name, default=None):
+        """ Returns the value of a parameter, applying overrides.
         """
         return self.cli_params.get(name,
                     self.overrides.get(name,
-                         self.param_store.get(name)))
-
-    def update(self, new_params):
-        """ Updates the parameter store with the supplied dict, without writing
-            the changes to disk.
-        """
-        self.param_store.update(new_params)
+                         self.saved_config.get(name, default)))
 
     def update_and_save(self, new_params, path=None):
-        """ Updates the parameter store and saves it.
+        """ Updates the default parameter file and saves it. This is called by the
+            stack-builder when it extracts stack outputs.
 
-            If provided with a path, writes the parameter store to that path.
-            Otherwise overwrites the original parameter store.
+            If provided with a path, writes the default parameter file to that path.
+            Otherwise overwrites the original default parameter file.
         """
-        self.update(new_params)
+        self.saved_config.update(new_params)
         if not path:
-            path = self.param_store_path
+            path = self.saved_config_path
         with open(path, "w") as f:
-            json.dump(self.param_store, f)
+            json.dump(self.saved_config, f)
+
+
+class Template:
+    """ Manages information extracted from a CloudFormation template, and allows
+        the application of that template to create a stack.
+
+        By default the template is loaded and validated at construction-time. This
+        will populate the exposed instance variables. For testing, you can defer
+        loading until a later time.
+    """
+
+    def __init__(self, client, path, eager_load=True):
+        self.client = client
+        self.template_path = path
+        self.param_names = set()
+        self.default_values = {}
+        if eager_load:
+            self.load()
+
+    def load(self):
+        """ Loads and validates the template.
+        """
+        with open(self.template_path) as f:
+            self.template_body = f.read()
+        response = client.validate_template(TemplateBody=self.template_body)
+        self.capabilities_needed = response.get('Capabilities', [])
+        for param in response.get('Parameters', []):
+            param_name = param['ParameterKey']
+            self.param_names.add(param_name)
+            default_value = param.get('DefaultValue')
+            if default_value:
+                self.default_values[param_name] = default_value
+
+    def apply(self, stack_name, saved_config):
+        stack = Stack(self.client, stack_name, self, saved_config)
+        stack.create_or_update()
+        return stack
 
 
 class Stack:
-    """ Provides the ability to create or update a stack, and holds information
-        about the stack after it has been created/updated.
+    """ Creates or updates a stack, and holds information about it.
     """
 
-    def __init__(self, client, stack_name, template, param_store):
+    def __init__(self, client, stack_name, template, config):
         self.client = client
         self.stack_name = stack_name
         self.template = template
-        self.params = param_store
+        self.config = config
+        self.existing_params = {}
 
     def create_or_update(self):
+        self._retrieve_stack_info()
         self._build_parameter_list()
-        self._retrieve_stack_id()
         if self.stack_id:
             self._update_stack()
         else:
@@ -118,24 +152,29 @@ class Stack:
         self._wait_until_done()
         self._extract_outputs()
 
-    def _build_parameter_list(self):
-        self.params_to_apply = []
-        for name in template.param_names:
-            value = self.params.get(name)
-            if value:
-                self.params_to_apply.append({
-                    'ParameterKey': name,
-                    'ParameterValue': value
-                })
-
-    def _retrieve_stack_id(self):
+    def _retrieve_stack_info(self):
         paginator = client.get_paginator('describe_stacks')
         for page in paginator.paginate():
             for stack in page['Stacks']:
                 if stack['StackName'] == self.stack_name:
                     self.stack_id = stack['StackId']
+                    for param in stack['Parameters']:
+                        k = param['ParameterKey']
+                        v = param['ParameterValue']
+                        self.existing_params[k] = v
                     return
         self.stack_id = None
+        
+    def _build_parameter_list(self):
+        self.params_to_apply = []
+        for name in template.param_names:
+            value = self.config.get(name,
+                        self.existing_params.get(name))
+            if value:
+                self.params_to_apply.append({
+                    'ParameterKey': name,
+                    'ParameterValue': value
+                })
 
     def _create_stack(self):
         print("creating new stack")
@@ -176,46 +215,13 @@ class Stack:
             self.outputs[output['OutputKey']] = output['OutputValue']
 
 
-class Template:
-    """ Manages information extracted from a CloudFormation template, and allows
-        the application of that template to create a stack.
-
-        By default the template is loaded and validated at construction-time. This
-        will populate the exposed instance variables. For testing, you can defer
-        loading until a later time.
-    """
-
-    def __init__(self, client, path, eager_load=True):
-        self.client = client
-        self.template_path = path
-        self.param_names = set()
-        self.default_values = {}
-        if eager_load:
-            self.load()
-
-    def load(self):
-        """ Loads and validates the template.
-        """
-        with open(self.template_path) as f:
-            self.template_body = f.read()
-        response = client.validate_template(TemplateBody=self.template_body)
-        self.capabilities_needed = response.get('Capabilities', [])
-        for param in response.get('Parameters', []):
-            param_name = param['ParameterKey']
-            self.param_names.add(param_name)
-            default_value = param.get('DefaultValue')
-            if default_value:
-                self.default_values[param_name] = default_value
-
-    def apply(self, stack_name, param_store):
-        stack = Stack(self.client, stack_name, self, param_store)
-        stack.create_or_update()
-        return stack
-
-
 if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print(__doc__)
+        sys.exit(1)
+
     client = boto3.client('cloudformation')
-    params = Params(sys.argv[3], sys.argv[4:])
-    template = Template(client, sys.argv[1])
-    stack = template.apply(sys.argv[2], params)
-    params.update_and_save(stack.outputs)
+    config = Config(sys.argv[3], sys.argv[4:])
+    template = Template(client, sys.argv[2])
+    stack = template.apply(sys.argv[1], config)
+    config.update_and_save(stack.outputs)
