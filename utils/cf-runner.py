@@ -26,15 +26,22 @@ consumed by application stacks.
 
 Invocation:
 
-  cf-runner.py STACK_NAME TEMPLATE_PATH CONFIG_FILE [ NAME=VALUE [...] ]
+  cf-runner.py STACK_NAME TEMPLATE_PATH [CONFIG_FILE] [ NAME=VALUE [...] ]
 
 Where:
 
   STACK_NAME    is the stack to be created or updated.
   TEMPLATE_PATH is the path to the CloudFormation template.
-  CONFIG_FILE   is the path to a JSON file containing saved configuration.
-  NAME          is the name of a template-specific parameter.
-  VALUE         is the value for that parameter.
+  CONFIG_FILE   is the path to a JSON file containing saved configuration
+                (optional; if not provided, you must provide all required
+                template parameters via name/value pairs).
+  NAME / VALUE  values for template parameters; these override any values
+                from the saved configuration.
+
+Notes:
+
+  The config file name may not contain an '=' character, because that's
+  used to identify whether it's a filename or a name/value pair.
 """
 
 
@@ -64,7 +71,7 @@ class Config:
     def __init__(self, saved_config_path, cli_params=[], overrides={}):
         self.saved_config_path = saved_config_path
         self.saved_config = {}
-        if os.path.exists(self.saved_config_path):
+        if self.saved_config_path and os.path.exists(self.saved_config_path):
             with open(self.saved_config_path) as f:
                 self.saved_config = json.load(f)
         self.cli_params = {}
@@ -90,8 +97,9 @@ class Config:
         self.saved_config.update(new_params)
         if not path:
             path = self.saved_config_path
-        with open(path, "w") as f:
-            json.dump(self.saved_config, f)
+        if path:
+            with open(path, "w") as f:
+                json.dump(self.saved_config, f)
 
 
 class Template:
@@ -220,8 +228,24 @@ if __name__ == "__main__":
         print(__doc__)
         sys.exit(1)
 
+    stack_name = sys.argv[1]
+    template_path = sys.argv[2]
+    config_path = None
+    param_values = []
+    if len(sys.argv) > 3:
+        if "=" in sys.argv[3]:
+            param_values = sys.argv[3:]
+        else:
+            config_path = sys.argv[3]
+            param_values = sys.argv[4:]
+
+    # print(f"stack_name    = {stack_name}")
+    # print(f"template_path = {template_path}")
+    # print(f"config_path   = {config_path}")
+    # print(f"param_values  = {param_values}")
+
     client = boto3.client('cloudformation')
-    config = Config(sys.argv[3], sys.argv[4:])
-    template = Template(client, sys.argv[2])
-    stack = template.apply(sys.argv[1], config)
+    config = Config(config_path, param_values)
+    template = Template(client, template_path)
+    stack = template.apply(stack_name, config)
     config.update_and_save(stack.outputs)
