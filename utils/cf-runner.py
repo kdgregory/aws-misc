@@ -217,7 +217,7 @@ class Stack:
             print(f"waiting for stack ({x * 15} seconds)")
             desc = self.client.describe_stacks(StackName=self.stack_id)
             self.status = desc['Stacks'][0]['StackStatus']
-            if self.status.endswith("COMPLETE"):
+            if self.status.endswith("COMPLETE") or self.status.endswith("FAILED"):
                 return
             time.sleep(15)
         print("timed out")
