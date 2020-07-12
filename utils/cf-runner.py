@@ -160,6 +160,11 @@ class Stack:
         self._wait_until_done()
         self._extract_outputs()
 
+    def updated_succeeded(self):
+        if self.timedout:
+            return false
+        return self.status == 'CREATE_COMPLETE' or self.status == 'UPDATE_COMPLETE'
+
     def _retrieve_stack_info(self):
         paginator = client.get_paginator('describe_stacks')
         for page in paginator.paginate():
@@ -207,14 +212,16 @@ class Stack:
             )
 
     def _wait_until_done(self):
+        self.timedout = False
         for x in range(0, 15 * 4 * 30):
-            print(f"waiting for stack to build ({x * 15} seconds)")
+            print(f"waiting for stack ({x * 15} seconds)")
             desc = self.client.describe_stacks(StackName=self.stack_id)
             self.status = desc['Stacks'][0]['StackStatus']
             if self.status.endswith("COMPLETE"):
                 return
             time.sleep(15)
-        print(f"timeout with status {self.stau}")
+        print("timed out")
+        self.timedout = True
 
     def _extract_outputs(self):
         self.outputs = {}
@@ -248,4 +255,8 @@ if __name__ == "__main__":
     config = Config(config_path, param_values)
     template = Template(client, template_path)
     stack = template.apply(stack_name, config)
-    config.update_and_save(stack.outputs)
+    if stack.updated_succeeded():
+        config.update_and_save(stack.outputs)
+        print("complete")
+    else:
+        print(f"failed: {stack.status}")
