@@ -51,7 +51,6 @@ import json
 import os
 import re
 import sys
-import uuid
 
 from botocore.exceptions import ClientError
 
@@ -80,15 +79,19 @@ def lookup_role_arn(roleName):
 
 
 def generate_session_name():
-    """ Creates a session name based based on the account and name of the invoking
-        user (if known) and a UUID.
+    """ Creates a session name based on invoking user identity. Preference is given
+        to actual account/username, with fallback to existing session identity for
+        an assumed role, with account ID as ultimate fallback (which I don't think
+        will ever happen).
     """
-    invokerArn = sts_client.get_caller_identity()['Arn']
-    matched = re.fullmatch(r"arn:aws:iam::([0-9]+):user/(.*)", invokerArn)
-    if matched:
-        return matched.group(1) + "-" + matched.group(2) + "-" + str(uuid.uuid4())
-    else:
-        return str(uuid.uuid4())
+    invoker = sts_client.get_caller_identity()
+    user_match = re.fullmatch(r"arn:aws:iam::[0-9]+:user/(.*)", invoker['Arn'])
+    if user_match:
+        return str(invoker['Account']) + "-"  + user_match.group(1)
+    role_match = re.fullmatch(r"arn:aws:sts::[0-9]+:assumed-role/.*/(.*)", invoker['Arn'])
+    if role_match:
+        return role_match.group(1)
+    return str(invoker['Account'])
 
 
 # this variable is a hack that lets us report the role duration from CLI invocation
