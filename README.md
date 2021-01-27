@@ -28,9 +28,10 @@ Note: to run you must have `boto3` installed.
 
 Program                                                             | Description
 --------------------------------------------------------------------|----------
+[assume-role.py](utils/assume-role.py)                              | Spawns a subshell with authentication credentials for a specified role.
 [cf-env.py](utils/cf-env.py)                                        | Populates environment variables from the parameters and outputs of a CloudFormation stack.
 [cf-runner.py](utils/cf-runner.py)                                  | Creates/updates CloudFormation scripts, using an external store of common parameters
-[assume-role.py](utils/assume-role.py)                              | Spawns a subshell with authentication credentials for a specified role.
+[kinesis_reader.py](utils/kinesis_reader.py)                         | Reads from a Kinesis stream, writing output as JSON.
 
 
 ## Snippets

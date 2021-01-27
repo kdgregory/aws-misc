@@ -17,16 +17,29 @@
 
 """
 
-Reads and prints all records from a Kinesis stream, starting at the end of the
-stream. This is useful to monitor streams that are actively being updated.
+Reads and prints all records from a Kinesis stream, starting at either the
+trim horizon or end of the stream.
 
 Invocation:
 
-    kinesis_reader.py STREAM_NAME
+    kinesis_reader.py STREAM_NAME [ITERATOR_TYPE [POLL_INTERVAL]]
 
 Where:
 
-    STREAM_NAME is the stream that you want to monitor (be in current account/region).
+    STREAM_NAME   is the stream that you want to monitor.
+    ITERATOR_TYPE is either LATEST (the default) or TRIM_HORIZON.
+    POLL_INTERVAL is the number of seconds to wait between read attempts.
+                  Default is 10.
+
+Notes:
+
+    Assumes that the stream contains UTF-8 encoded messages.
+
+    For multi-shard streams, processes all message from a single shared
+    before moving to the next shard.
+
+    Pipe output into jq '.Data|fromjson' to parse JSON data records (which
+    can then be passed to jq for additional processing).
 
 """
 
@@ -34,6 +47,8 @@ import boto3
 import json
 import time
 import sys
+
+from datetime import timezone
 
 
 client = boto3.client('kinesis')
@@ -49,7 +64,7 @@ def retrieve_shards(stream_name):
     return result
 
 
-def retrieve_shard_iterators(stream_name, shards, iterator_type='LATEST'):
+def retrieve_shard_iterators(stream_name, shards, iterator_type):
     """ Returns a map of shard ID to iterator.
     """
     result = {}
@@ -67,19 +82,28 @@ def retrieve_records(iterators):
     for shard_id, itx in iterators.items():
         resp = client.get_records(ShardIterator=itx)
         for rec in resp['Records']:
-            result.append(rec)
+            result.append({
+                'SequenceNumber':               rec['SequenceNumber'],
+                'ApproximateArrivalTimestamp':  rec['ApproximateArrivalTimestamp'].astimezone(timezone.utc).isoformat(),
+                'Data':                         rec['Data'].decode('utf-8'),
+                'PartitionKey':                 rec['PartitionKey']
+                })
         iterators[shard_id] = resp['NextShardIterator']
     return result
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) < 2 or len(sys.argv) > 4:
         print(__doc__)
         sys.exit(1)
+
     stream_name = sys.argv[1]
+    iterator_type = sys.argv[2] if len(sys.argv) > 2 else 'LATEST'
+    poll_interval = int(sys.argv[3]) if len(sys.argv) > 3 else 10
+    
     shards = retrieve_shards(stream_name)
-    iterators = retrieve_shard_iterators(stream_name, shards)
+    iterators = retrieve_shard_iterators(stream_name, shards, iterator_type)
     while True:
         for rec in retrieve_records(iterators):
-            print(rec)
-        time.sleep(10)
+            print(json.dumps(rec))
+        time.sleep(poll_interval)
