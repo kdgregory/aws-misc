@@ -16,7 +16,6 @@
 ################################################################################
 
 """
-
 Reads and prints all records from a Kinesis stream, starting at either the
 trim horizon or end of the stream.
 
@@ -33,14 +32,22 @@ Where:
 
 Notes:
 
-    Assumes that the stream contains UTF-8 encoded messages.
+    Output is JSON, with the following fields:
 
-    For multi-shard streams, processes all message from a single shared
+        ApproximateArrivalTimestamp     the time that the message was stored in
+                                        the stream, as an ISO-8601 UTC string.
+        Data                            the message data; see below.
+        PartitionKey                    the partition key for this message.
+        SequenceNumber                  the message's unique sequence number.
+
+    The message data is assumed to be a UTF-8-encoded string. If not, you must
+    update retrieve-record() to apply whatever encoding/decoding is needed.
+
+    If the data record is itself a stringified JSON object, you can extract
+    it by piping output into jq with the query '.Data|fromjson'.
+
+    For multi-shard streams, all message from a single shared are retrieved
     before moving to the next shard.
-
-    Pipe output into jq '.Data|fromjson' to parse JSON data records (which
-    can then be passed to jq for additional processing).
-
 """
 
 import boto3
