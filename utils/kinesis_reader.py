@@ -21,16 +21,23 @@ trim horizon or end of the stream.
 
 Invocation:
 
-    kinesis_reader.py STREAM_NAME [ITERATOR_TYPE [POLL_INTERVAL]]
+    kinesis_reader.py STREAM_NAME [STARTING_AT [POLL_INTERVAL]]
 
 Where:
 
     STREAM_NAME   is the stream that you want to monitor.
-    ITERATOR_TYPE is either LATEST (the default) or TRIM_HORIZON.
+    STARTING_AT   identfiies where to start reading the stream. May be LATEST
+                  (the default), TRIM_HORIZON, or AT_TIMESTAMP. The last requires
+                  an additional argument; see below.
     POLL_INTERVAL is the number of seconds to wait between read attempts.
                   Default is 10.
 
 Notes:
+
+    To use the AT_TIMESTAMP shared iterator type, you must provide an additional
+    argument, which may be either an ISO-8601-formatted UTC timestamp without
+    fractional seconds (eg, "2021-04-15T01:23:45") or a numeric value representing
+    seconds since epoch (which may have fractional seconds).
 
     Output is JSON, with the following fields:
 
@@ -51,6 +58,7 @@ Notes:
 """
 
 import boto3
+import calendar
 import json
 import time
 import sys
@@ -59,6 +67,18 @@ from datetime import timezone
 
 
 client = boto3.client('kinesis')
+
+
+def parse_timestamp(value):
+    for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"]:
+        try:
+            return calendar.timegm(time.strptime(value, fmt))
+        except ValueError:
+            pass
+    try:
+        return float(value)
+    except:
+        raise ValueError(f"invalid timestamp: {value}")
 
 
 def retrieve_shards(stream_name):
@@ -71,13 +91,16 @@ def retrieve_shards(stream_name):
     return result
 
 
-def retrieve_shard_iterators(stream_name, shards, iterator_type):
+def retrieve_shard_iterators(stream_name, shards, iterator_type, timestamp=None):
     """ Returns a map of shard ID to iterator.
     """
     result = {}
     for shard in shards:
         shard_id = shard['ShardId']
-        resp = client.get_shard_iterator(StreamName=stream_name, ShardId=shard_id, ShardIteratorType=iterator_type)
+        if timestamp:
+            resp = client.get_shard_iterator(StreamName=stream_name, ShardId=shard_id, ShardIteratorType=iterator_type, Timestamp=timestamp)
+        else:
+            resp = client.get_shard_iterator(StreamName=stream_name, ShardId=shard_id, ShardIteratorType=iterator_type)
         result[shard_id] = resp['ShardIterator']
     return result
 
@@ -100,17 +123,20 @@ def retrieve_records(iterators):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2 or len(sys.argv) > 4:
+    if len(sys.argv) < 2 or len(sys.argv) > 5:
         print(__doc__)
         sys.exit(1)
 
     stream_name = sys.argv[1]
     iterator_type = sys.argv[2] if len(sys.argv) > 2 else 'LATEST'
+    timestamp = parse_timestamp(sys.argv.pop(3)) if iterator_type == 'AT_TIMESTAMP' else None
     poll_interval = int(sys.argv[3]) if len(sys.argv) > 3 else 10
-    
+
     shards = retrieve_shards(stream_name)
-    iterators = retrieve_shard_iterators(stream_name, shards, iterator_type)
+    iterators = retrieve_shard_iterators(stream_name, shards, iterator_type, timestamp)
     while True:
         for rec in retrieve_records(iterators):
             print(json.dumps(rec))
         time.sleep(poll_interval)
+
+
