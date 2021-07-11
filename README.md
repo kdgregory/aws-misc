@@ -42,6 +42,8 @@ Directory                                                           | Contents
 
 ## Terraform
 
-Directory                                                           | Contents
---------------------------------------------------------------------|----------
-[provision-via-bastion](terraform/provision-via-bastion)            | Example of provisioning an instance via a bastion host.
+Directory                                                                   | Contents
+----------------------------------------------------------------------------|----------
+[modules/lambda](terraform/modules/lambda)                                  | Module for creating Lambda functions.
+[examples/provision-via-bastion](terraform/examples/provision-via-bastion)  | Example of provisioning an instance via a bastion host.
+[templates](terraform/templates)                                            | Templates for common config files.
