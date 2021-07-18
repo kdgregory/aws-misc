@@ -58,6 +58,13 @@ configuration.
 
   Default: null.
 
+* `source_code_hash`
+
+  A Base64-encoded 256-bit value that determines whether the Lambda source code should be updated.
+  
+  This will be calculated automatically if you deploy from a local file (`filename`), but must be
+  provided if you deploy from S3 (`s3_bucket`/`s3_key`).
+
 * `handler`
 
   The fully-qualified name of the Lambda's handler function, The format of this value depends on

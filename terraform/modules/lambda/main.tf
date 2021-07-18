@@ -12,7 +12,8 @@ locals {
   aws_account_id              = data.aws_caller_identity.current.account_id
   aws_region                  = data.aws_region.current.name
 
-  source_code_hash            = (var.filename != null) ? filebase64sha256(var.filename) : null
+  file_hash                   = (var.filename != null) ? filebase64sha256(var.filename) : null
+  source_code_hash            = (var.source_code_hash != null) ? var.source_code_hash : local.file_hash
 
   deploy_in_vpc               = (var.vpc_id != null) ? toset(["1"]) : toset([])
   security_group_ids          = (var.vpc_id != null) ? concat([aws_security_group.marker["1"].id], var.security_group_ids) : null
@@ -76,10 +77,10 @@ resource "aws_iam_role" "execution_role" {
 
 
 resource "aws_iam_role_policy" "logging_policy" {
-  name = "Logging"
-  role = aws_iam_role.execution_role.id
+  name    = "Logging"
+  role    = aws_iam_role.execution_role.id
 
-  policy = jsonencode({
+  policy  = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
@@ -100,10 +101,12 @@ resource "aws_iam_role_policy" "logging_policy" {
 
 
 resource "aws_iam_role_policy" "vpc_policy" {
-  name = "VPC_Attachment"
-  role = aws_iam_role.execution_role.id
+  for_each  = local.deploy_in_vpc
 
-  policy = jsonencode({
+  name      = "VPC_Attachment"
+  role      = aws_iam_role.execution_role.id
+
+  policy    = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {

@@ -32,6 +32,12 @@ variable "s3_key" {
   default     = null
 }
 
+variable "source_code_hash" {
+  description = "A Base64-encoded 256-bit hash value used to determine whether the Lambda code should be updated"
+  type        = string
+  default     = null
+}
+
 variable "handler" {
   description = "The fully qualified name of the Lambda's handler function"
   type        = string
@@ -82,7 +88,7 @@ variable "env" {
 variable "tags" {
   description = "Tags that are applied to all resources"
   type        = map(string)
-  default     = null
+  default     = {}
 }
 
 variable "log_retention" {
