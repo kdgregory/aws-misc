@@ -21,13 +21,19 @@ variable "filename" {
 }
 
 variable "s3_bucket" {
-  description = "The name of the bucket holding the Lambda deployment bundle; mutually exlusive with filename"
+  description = "The name of the bucket holding the Lambda deployment bundle; mutually exclusive with filename"
   type        = string
   default     = null
 }
 
 variable "s3_key" {
-  description = "The key of the Lambda deployment bundle in the bucket identified by s3_bucket; mutually exlusive with filename"
+  description = "The key of a Lambda deployment bundle stored in S3; mutually exclusive with filename"
+  type        = string
+  default     = null
+}
+
+variable "s3_version" {
+  description = "The version identifier of the Lambda deployment bundle stored in S3; mutually exclusive with filename"
   type        = string
   default     = null
 }

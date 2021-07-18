@@ -58,12 +58,23 @@ configuration.
 
   Default: null.
 
+* `s3_version`
+
+  The version identifier of a Lambda deployment bundle stored on S3. You don't need to use
+  this to deploy from S3, unless you also upload the bundle via Terraform and want the Lambda
+  to see the update. See the [s3_deployment](../s3_deployment) module for an example.
+
+  Default: null
+
 * `source_code_hash`
 
-  A Base64-encoded 256-bit value that determines whether the Lambda source code should be updated.
-  
-  This will be calculated automatically if you deploy from a local file (`filename`), but must be
-  provided if you deploy from S3 (`s3_bucket`/`s3_key`).
+  A Base64-encoded SHA256 hash that determines whether the Lambda source code should be updated.
+
+  This will be calculated if you specify `filename` and do not provide an overriding value. It
+  is exposed for S3-based deployments (although there's no way to get the value from S3), or to
+  _prevent_ a deployment that would otherwise occur (you'd have to preserve the value somehow).
+
+  Default: null / value calculated from `filename`
 
 * `handler`
 
