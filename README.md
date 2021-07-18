@@ -45,5 +45,7 @@ Directory                                                           | Contents
 Directory                                                                   | Contents
 ----------------------------------------------------------------------------|----------
 [modules/lambda](terraform/modules/lambda)                                  | Module for creating Lambda functions.
+[modules/sqs](terraform/modules/sqs)                                        | Module for creating SQS queues.
+[modules/s3_deployment](terraform/modules/s3_deployment)                    | Module for maintaining Lambda deployment bundles on S3.
 [examples/provision-via-bastion](terraform/examples/provision-via-bastion)  | Example of provisioning an instance via a bastion host.
 [templates](terraform/templates)                                            | Templates for common config files.
