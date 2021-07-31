@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "A Lambda function that deletes CloudWatch log streams that are empty due to passing retention limit"
+
+Parameters:
+
+  LambdaName:
+    Description:                        "Name of the Lambda function"
+    Type:                               "String"
+    Default:                            "CloudWatchLogsCleanup"
+
+  SourceBucket:
+    Description:                        "The S3 bucket where you uploaded the Lamdba deployment bundle"
+    Type:                               "String"
+
+  SourceKey:
+    Description:                        "The path in that bucket to the Lambda deployment bundle"
+    Type:                               "String"
+
+  Schedule:
+    Description:                        "Scheduling expression for trigger (cron or rate)"
+    Type:                               "String"
+    Default:                            "cron(0 0 * * ? *)"
+
+  Timeout:
+    Description:                        "Number of seconds that the function should be allowed to execute; increase if you have heavy log usage"
+    Type:                               "Number"
+    Default:                            60
+
+
+Resources:
+
+  ExecutionRole:
+    Type:                               "AWS::IAM::Role"
+    Properties:
+      Path:                             "/lambda/"
+      RoleName:                         !Sub "${LambdaName}-ExecutionRole-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version:                        "2012-10-17"
+        Statement:
+          Effect:                       "Allow"
+          Principal:
+            Service:                    "lambda.amazonaws.com"
+          Action:                       "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName:                   "InternalLogging"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "logs:CreateLogStream"
+                -                       "logs:PutLogEvents"
+              Resource:                 [ !GetAtt LogGroup.Arn ]
+        -
+          PolicyName:                   "AllowCleanup"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "logs:DeleteLogStream"
+                -                       "logs:DescribeLogGroups"
+                -                       "logs:DescribeLogStreams"
+                -                       "logs:GetLogEvents"
+              Resource:                 [ "*" ]
+
+
+  LogGroup:
+    Type:                               "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName:                     !Sub "/aws/lambda/${LambdaName}"
+      RetentionInDays:                  30
+
+
+  LambdaFunction:
+    Type:                               "AWS::Lambda::Function"
+    Properties: 
+      FunctionName:                     !Ref LambdaName
+      Description:                      "Deletes CloudWatch log streams that are empty due to passing retention limit"
+      Role:                             !GetAtt ExecutionRole.Arn
+      Runtime:                          "python3.8"
+      Handler:                          "lambda_function.lambda_handler"
+      Code: 
+        S3Bucket:                       !Ref SourceBucket
+        S3Key:                          !Ref SourceKey
+      MemorySize:                       512
+      Timeout:                          !Ref Timeout
+
+  
+  LambdaPermission:
+    Type:                               "AWS::Lambda::Permission"
+    Properties: 
+      Action:                           "lambda:InvokeFunction"
+      FunctionName:                     !Ref LambdaFunction
+      Principal:                        "events.amazonaws.com"
+      SourceArn:                        !GetAtt InvocationSchedule.Arn
+
+
+  InvocationSchedule:
+    Type:                               "AWS::Events::Rule"
+    Properties: 
+      Description:                      !Sub "Invokes the ${LambdaName} Lambda function"
+      ScheduleExpression:               !Ref Schedule
+      State:                            "ENABLED"
+      Targets: 
+        - Arn:                          !GetAtt LambdaFunction.Arn
+          Id:                           !Sub "Invoke-${LambdaName}"
