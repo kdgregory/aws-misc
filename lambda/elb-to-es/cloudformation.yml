@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "A Lambda function that copies ALB access logs to an Elasticsearch cluster"
+
+Parameters:
+
+  LambdaName:
+    Description:                        "Name of the Lambda function"
+    Type:                               "String"
+    Default:                            "ALBLogs_to_Elasticsearch"
+
+  SourceBucket:
+    Description:                        "The S3 bucket where you uploaded the Lamdba deployment bundle"
+    Type:                               "String"
+
+  SourceKey:
+    Description:                        "The path in that bucket to the Lambda deployment bundle"
+    Type:                               "String"
+
+  LogsBucket:
+    Description:                        "The S3 bucket where the load balancer stores logs"
+    Type:                               "String"
+
+  LogsPrefix:
+    Description:                        "Optional prefix for those logs (must include trailing slash)"
+    Type:                               "String"
+    Default:                            ""
+
+  ElasticsearchHostname:
+    Description:                        "The fully-qualified hostname of your Elasticsearch cluster"
+    Type:                               "String"
+
+  ElasticsearchArn:
+    Description:                        "The ARN of your Elasticsearch cluster (used to grant permissions)"
+    Type:                               "String"
+
+
+Resources:
+
+  ExecutionRole:
+    Type:                               "AWS::IAM::Role"
+    Properties:
+      Path:                             "/lambda/"
+      RoleName:                         !Sub "${LambdaName}-ExecutionRole-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version:                        "2012-10-17"
+        Statement:
+          Effect:                       "Allow"
+          Principal:
+            Service:                    "lambda.amazonaws.com"
+          Action:                       "sts:AssumeRole"
+      Policies:
+        - PolicyName:                   "InternalLogging"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "logs:CreateLogStream"
+                -                       "logs:PutLogEvents"
+              Resource:                 [ !GetAtt LogGroup.Arn ]
+        - PolicyName:                   "ReadFromSource"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "s3:GetObject"
+                -                       "s3:HeadObject"
+              Resource:                 [ !Sub "arn:aws:s3:::${LogsBucket}/${LogsPrefix}*" ]
+        - PolicyName:                   "WriteToDestination"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:                   [ "es:ESHttpGet", "es:ESHttpPost", "es:ESHttpPut" ]
+              Resource:                 [ !Sub "${ElasticsearchArn}/*" ]
+
+
+  LogGroup:
+    Type:                               "AWS::Logs::LogGroup"
+    Properties: 
+      LogGroupName:                     !Sub "/aws/lambda/${LambdaName}"
+      RetentionInDays:                  30
+
+
+  LambdaFunction:
+    Type:                               "AWS::Lambda::Function"
+    Properties: 
+      FunctionName:                     !Ref LambdaName
+      Description:                      "Uploads ALB access logs to Elasticsearch"
+      Role:                             !GetAtt ExecutionRole.Arn
+      Runtime:                          "python3.8"
+      Handler:                          "lambda_function.lambda_handler"
+      Code: 
+        S3Bucket:                       !Ref SourceBucket
+        S3Key:                          !Ref SourceKey
+      MemorySize:                       512
+      Timeout:                          60
+      Environment:
+        Variables:
+          ELASTIC_SEARCH_HOSTNAME:      !Ref ElasticsearchHostname
+          BATCH_SIZE:                   1000
