@@ -5,9 +5,9 @@ It is triggered when the logfile is written to S3, and uses signed requests to t
 
 ## Lambda Configuration
 
-Runtime: Python 3.6
+6untime: Python 3.6
 
-Required Memory: 128 MB
+Required Memory: 256 MB
 
 Timeout: 30 sec
 
@@ -29,27 +29,30 @@ Timeout: 30 sec
 
 ## Building the Deployment Bundle
 
-This must be done on a non-Debian Linux (because Debian [broke pip's -t option](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=830892)).
-If that doesn't match what you have, I recommend spinning up a `t2.micro` EC2 instance, running Amazon Linux.
-
-You'll need to have Python 3 with PIP, along with WGet and Zip. If you're running Amazon Linux, this will get them:
+This Lambda requires the third-party `requests` and `aws-requests-auth` modules, so the first step is
+retrieving them (actually, the first step is ensuring that you have `pip` installed).
 
 ```
-sudo yum install python3 python3-pip wget zip
+pip install -t build -r requirements.txt
 ```
 
-Now you can create the deployment directory, download the Lambda source, install necessary modules, and zip it into an upload bundle.
+Next, build the Lambda bundle:
 
 ```
-mkdir elb-to-es
-cd elb-to-es
+cp lambda_function.py build/
 
-wget https://raw.githubusercontent.com/kdgregory/aws-misc/master/elb-to-es/lambda_function.py
-
-pip3 install -t `pwd` requests aws-requests-auth
-
-zip -r /tmp/elb-to-es.zip .
+cd build
+zip -r ../lambda.zip .
+cd ..
 ```
+
+At this point you can either manually create the Lambda function, with permissions and
+environment variables described above, or you can upload it to S3 and use the provided
+CloudFormation template.
+
+
+## Deploying with CloudFormation
+
 
 
 ## Additional Information
