@@ -34,17 +34,16 @@ from functools import lru_cache
 import requests
 from aws_requests_auth.aws_auth import AWSRequestsAuth
 
-from elb_parsers import ALBParser
+from elb_parsers import ALBParser, CLBParser
 
 
 # fail fast if missing required configuration
 ES_HOSTNAME = os.environ["ELASTIC_SEARCH_HOSTNAME"]
+
+# the rest has defaults
+ELB_TYPE = os.environ.get("ELB_TYPE", "ALB")
 ES_INDEX_PREFIX = os.environ.get("INDEX_PREFIX", "elb")
 BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1000"))
-
-
-# this regex extracts the host portion from a url
-HOST_RE = re.compile(r'[Hh][Tt][Tt][Pp][Ss]?://([^:/]+).*')
 
 
 @lru_cache(maxsize=1)
@@ -69,8 +68,10 @@ def request_auth():
 
 @lru_cache(maxsize=1)
 def parser():
-    # TODO - pick an appropriate parser
-    return ALBParser()
+    if ELB_TYPE == "CLB":
+        return CLBParser()
+    else:
+        return ALBParser()
 
 
 def lambda_handler(event, context):

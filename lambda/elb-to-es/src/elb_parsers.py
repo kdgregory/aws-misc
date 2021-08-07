@@ -41,6 +41,7 @@ class BaseParser:
         """ Expects a buffer containing individual log lines, and parses those
             lines using the subclass regex.
             """
+        buffer.seek(0)
         content = io.TextIOWrapper(buffer, encoding='utf-8')
         result = []
         for line in content.readlines():
@@ -65,7 +66,7 @@ class ALBParser(BaseParser):
         self._regex = re.compile((
             r'(?P<request_type>[^ ]+) '                              
             r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '  
-            r'(?P<elb_resource_id>[^ ]+) '                                
+            r'(?P<elb_name>[^ ]+) '                                
             r'(?P<client_ip>[^:]+):'                                
             r'(?P<client_port>[^ ]+) '                                
             r'(?P<backend_address>[^ ]+) '                                
@@ -106,33 +107,31 @@ class ALBParser(BaseParser):
         return super().parse(buffer)
 
 
-class CLBParser:
+class CLBParser(BaseParser):
     """ Extracts records from a Classic load balancer.
         """
 
     def __init__(self):
-        # TODO - change this to use named fields
+        super().__init__()
         self._regex = re.compile(
             (
-            r'^(\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '    # timestamp
-            r'([^ ]+) '                                   # elb_name
-            r'(\d+\.\d+\.\d+\.\d+):(\d+) '                # client_ip, client_port
-            r'(\d+\.\d+\.\d+\.\d+):(\d+) '                # backend_ip, backend_port
-            r'([0-9.-]+) '                                # request_processing_time
-            r'([0-9.-]+) '                                # backend_processing_time
-            r'([0-9.-]+) '                                # response_processing_time
-            r'(\d{3}) '                                   # elb_status_code
-            r'(\d{3}) '                                   # backend_status_code
-            r'(\d+) '                                     # received_bytes
-            r'(\d+) '                                     # sent_bytes
-            r'"([A-Z]+) '                                 # http_method
-            r'([^ ]+) '                                   # http_url
-            r'([^ ]+)" '                                  # http_version
-            r'"(.+)" '                                    # user_agent
-            r'(.+) '                                      # ssl_cipher
-            r'(.+)$'                                      # ssl_protocol
+            r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '
+            r'(?P<elb_name>[^ ]+) '                         
+            r'(?P<client_ip>[^:]+):'                                
+            r'(?P<client_port>[^ ]+) '                            
+            r'(?P<backend_address>[^ ]+) '  
+            r'(?P<request_processing_time>[0-9.-]+) ' 
+            r'(?P<backend_processing_time>[0-9.-]+) ' 
+            r'(?P<response_processing_time>[0-9.-]+) '
+            r'(?P<elb_status_code>\d{3}) '   
+            r'(?P<backend_status_code>\d{3}) '  
+            r'(?P<received_bytes>\d+) ' 
+            r'(?P<sent_bytes>\d+) '  
+            r'"(?P<request_method>[A-Z]+) '
+            r'(?P<request_url>[^ ]+) '    
+            r'(?P<http_version>[^ ]+)" '                                     
+            r'"(?P<user_agent>.+?)" '                         
+            r'(?P<ssl_cipher>[^ ]+) '                                
+            r'(?P<ssl_protocol>[^ ]+)'        
             ))
-
-    def parse(self, buffer):
-        pass
 
