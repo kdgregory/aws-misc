@@ -20,18 +20,54 @@ class ParseException(Exception):
     def __init__(self, message, input_line=None):
         self.message = message
         self.input_line = input_line
+        
+        
+class BaseParser:
+    """ Common functionality for all parsers.
+        """    
+    
+    def __init__(self):
+        super().__init__()
+        self._url_regex = re.compile((
+            r'(?P<request_protocol>[^:]+)://'   
+            r'(?P<request_host>[^:/]+)'
+            r':?(?P<request_port>[\d]+)/'
+            r'(?P<request_path>[^?]+)'
+            r'[?]?(?P<request_query>.*)'
+        ))
+    
+    
+    def parse(self, buffer):
+        """ Expects a buffer containing individual log lines, and parses those
+            lines using the subclass regex.
+            """
+        content = io.TextIOWrapper(buffer, encoding='utf-8')
+        result = []
+        for line in content.readlines():
+            match = self._regex.match(line)
+            if not match:
+                raise ParseException("failed to match regex", line)
+            entry = dict(match.groupdict())
+            request_url = entry.get('request_url', "")
+            url_match = self._url_regex.match(request_url)
+            if url_match:
+                entry.update(url_match.groupdict())
+            result.append(entry)
+        return result
 
 
-class ALBParser:
+class ALBParser(BaseParser):
     """ Extracts records from an Application load balancer.
         """
     
     def __init__(self):
+        super().__init__()
         self._regex = re.compile((
-            r'^(?P<request_type>[^ ]+) '                              
+            r'(?P<request_type>[^ ]+) '                              
             r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '  
             r'(?P<elb_resource_id>[^ ]+) '                                
-            r'(?P<client_address>[^ ]+) '                                
+            r'(?P<client_ip>[^:]+):'                                
+            r'(?P<client_port>[^ ]+) '                                
             r'(?P<backend_address>[^ ]+) '                                
             r'(?P<request_processing_time>[0-9.-]+) '                             
             r'(?P<backend_processing_time>[0-9.-]+) '                             
@@ -40,8 +76,8 @@ class ALBParser:
             r'(?P<backend_status_code>[^ ]+) '                                
             r'(?P<received_bytes>\d+) '                                  
             r'(?P<sent_bytes>\d+) '                                  
-            r'"(?P<http_method>[A-Z]+) '                              
-            r'(?P<http_url>[^ ]+) '                                
+            r'"(?P<request_method>[A-Z]+) '                              
+            r'(?P<request_url>[^ ]+) '                                
             r'(?P<http_version>[^ ]+)" '                               
             r'"(?P<user_agent>.+?)" '                                
             r'(?P<ssl_cipher>[^ ]+) '                                
@@ -59,7 +95,7 @@ class ALBParser:
             r'"(?P<target_status_list>[^ ]+)" '                             
             r'"(?P<classification>[^ ]+)" '                              
             r'"(?P<classification_reason>[^ ]+)"'                               
-            ))
+        ))
 
     def parse(self, buffer):
         try:
@@ -67,15 +103,7 @@ class ALBParser:
             buffer = io.BytesIO(unzipped)
         except Exception as ex:
             raise ParseException("failed to parse file") from ex
-        content = io.TextIOWrapper(buffer)
-        result = []
-        for line in content.readlines():
-            match = self._regex.match(line)
-            if match:
-                result.append(dict(match.groupdict()))
-            else:
-                raise ParseException("failed to match regex", line)
-        return result
+        return super().parse(buffer)
 
 
 class CLBParser:
@@ -107,3 +135,4 @@ class CLBParser:
 
     def parse(self, buffer):
         pass
+
