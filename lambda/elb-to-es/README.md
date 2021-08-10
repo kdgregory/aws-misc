@@ -1,18 +1,18 @@
-This function parses Elastic Load Balancer log output, converts it to JSON, and uploads it to ElasticSearch.
-
-It is triggered when the logfile is written to S3, and uses signed requests to the ElasticSearch bulk API.
+This function parses Elastic Load Balancer log output, converts it to JSON, and uploads it to
+Elasticsearch. It is triggered when the logfile is written to S3, and uses signed requests to
+the Elasticsearch bulk API.
 
 
 ## Configuration
 
-You can deploy the Lambda either inside or outside of a VPC. As a general rule, deploy it wherever you've
-deployed your Elasticsearch cluster. If deployed inside a VPC, it must be able to access files stored on
-S3, either via NAT or VPC Gateway. 
+You can deploy the Lambda either inside or outside of a VPC. As a general rule, deploy it wherever 
+you've deployed your Elasticsearch cluster. If deployed inside a VPC, it must be able to access
+files stored on S3, either via NAT or VPC Gateway. 
 
 Basic Lambda configuration:
 
-  * Runtime: Python 3.6+
-  * Required Memory: 512 MB (driven more by CPU allotment than actual memory usage)
+  * Runtime: Python 3.7+
+  * Required Memory: 256 MB (although 1024 will provide more CPU and handle larger files)
   * Timeout: 30 sec
 
 IAM Permissions:
@@ -20,51 +20,44 @@ IAM Permissions:
 * `AWSLambdaBasicExecutionRole`/`AWSLambdaVPCAccessExecutionRole` or equivalent explicit policies.
 * `es:ESHttpPost`
 * `s3:GetObject`
+* `s3:HeadObject`
 
 Environment variables:
 
-* `ELASTIC_SEARCH_HOSTNAME`: hostname of the ElasticSearch cluster
+* `ELASTIC_SEARCH_HOSTNAME`: hostname of the Elasticsearch cluster (_not_ URL, which is what you
+  copy from the AWS Console page).
 
-* `BATCH_SIZE`: the number of logfile lines that will be posted as a single batch. This is dependent on
-  the memory assigned to the Lambda function: the default is sufficient for 1,000 or more rows.
+* `ES_INDEX_PREFIX`: (optional) defines a prefix for Elasticsearch indexes created by the Lambda;
+  default is "elb". If you have multiple load balancers feeding a single Elasticsearch cluster and
+  want to keep their logs separate, use a separate Lambda for each with different values for this
+  variable.
 
-* IAM session identity: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_REGION`.
-  These are used to configure the `aws-requests-auth` module. They are provided by the Lambda runtime
-  but must be explicitly configured if you want to run locally.
+* `ELB_TYPE`: (optional) identifies the type of load balancer, and therefore the parser used to
+  process its logfiles. The default is "ALB", for an Application load balancer. If you're using
+  a Classic load balancer, change to "CLB". Other load balancer types are not currently supported.
+
+* `BATCH_SIZE`: the number of logfile lines that will be posted to Elasticsearch as a single batch.
+  The default (1000) has been shown to keep Elasticsearch happy; you may see slightly improved
+  performance by increasing it.
+
+* IAM session identity (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, and
+  `AWS_REGION`): these are used to configure the `aws-requests-auth` module. They are provided
+  by the Lambda runtime but must be explicitly configured if you want to run locally. If using
+  long-term (user) credentials, you can omit `AWS_SESSION_TOKEN`.
 
 
-## Building the Deployment Bundle
+## Building and Deploying
 
-This Lambda requires the third-party `requests` and `aws-requests-auth` modules, so the first step is
-retrieving them (actually, the first step is ensuring that you have `pip` installed).
+Assuming that you have `make` installed, you can use it to produce the Lambda deployment bundle
+and upload it to S3:
 
 ```
-pip install -t build -r requirements.txt
+make upload S3_BUCKET=com-example-deployment S3_KEY=alb-to-es.zip
 ```
 
-Next, build the Lambda bundle:
-
-```
-cp lambda_function.py build/
-
-cd build
-zip -r ../lambda.zip .
-cd ..
-```
-
-At this point you can either manually create the Lambda function, with permissions and
-environment variables described above, or you can upload it to S3 and use the provided
-CloudFormation template.
-
-
-## Deploying with CloudFormation
-
-The template [cloudformation.yml](cloudformation.yml) creates the Lambda from a deployment
-bundle stored on S3.  It also creates the Lambda's execution role and configures its
-environment variables.
-
-There are several parameters that you must configure for this template. For example, using
-my [cf-runner](../../utils/cf-runner.py) script to deploy:
+Once uploaded, you can then deploy with the [provided CloudFormation template](cloudformation.yml).
+There are several parameters that you must configure for this template. For example, using my
+[cf-runner](../../utils/cf-runner.py) script:
 
 ```
 cf-runner.py ALB-To-Elasticsearch \
@@ -77,29 +70,24 @@ cf-runner.py ALB-To-Elasticsearch \
              ElasticsearchArn=arn:aws:es:us-east-1:123456789012:domain/logs
 ```
 
-One thing that the template does _not_ do is configure the bucket to notify the Lamdba.
-With CloudFormation, notifications must be configured at the time you create the bucket.
+This template creates the Lambda itself, its log group, and its execution rule. One thing that it
+does _not_ do is configure the bucket to notify the Lamdba. With CloudFormation, notifications must
+be configured at the time you create the bucket, and you will normally create that bucket in a base
+infrastructure script.
+
 The simplest solution to this problem is to update the Lambda's trigger in the Console.
-While you _could_ create the Lambda before the bucket, and then set up the notification
-when creating the bucket, [that has its own caveats](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-s3-bucket-notificationconfig.html).
 
 
 ## Additional Information
 
-The logfile is retrieved from S3 and stored in the Lambda's temporary directory. This means
-that it can only process files that are smaller than approximately 512 MB.
+The logfile is retrieved from S3 and stored in memory for processing. If you have relatively
+low traffic, or configure your load balancer to write files every 5 minutes (a good idea in
+any case), 256 MB of memory should be sufficient. Look at the logged statistics to see if you
+are close to that (the Lambda will abort if you need more). However, consider increasing memory
+to 1024 MB for the improved CPU that comes with it.
 
-The ElasticSearch cluster must grant permission to the Lambda function. Assuming that your
-cluster currently grants access by IP, you can add a statement like the following (changing
-`ACCOUNT_ID`, `ROLE_NAME`, and `CLUSTER_NAME`):
-
-```
-{
-  "Effect": "Allow",
-  "Principal": {
-    "AWS": "arn:aws:iam::ACCOUNT_ID:role/ROLE_NAME"
-  },
-  "Action": "es:ESHttpPost",
-  "Resource": "arn:aws:es:us-east-1:ACCOUNT_ID:domain/CLUSTER_NAME/*"
-}
-```
+The Lambda relies on Elasticsearch auto-creating any required indexes. The Lambda names each
+index after the date of the records it contains: for example, `elb-2021-08-01`. You can
+configure the prefix (here "elb") using the `ES_INDEX_PREFIX` environment variable. For a low
+volume server, you might prefer to use one index per month. If so, you'll need to change the
+`process_record()` method: replace the `[0:10]` substring operation with `[0:7]`.
