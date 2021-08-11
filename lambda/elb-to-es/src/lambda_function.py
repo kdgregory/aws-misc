@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
-#
-# Writes load balancer log records to an Elasticsearch cluster. Invoked via S3
-# notification.
-#
-# See https://www.kdgregory.com/index.php?page=aws.loggingPipeline#elb for more
-# information.
-#
-################################################################################
+
+""" Writes load balancer log records to an Elasticsearch cluster. Invoked via S3
+    notification.
+
+    See https://www.kdgregory.com/index.php?page=aws.loggingPipeline#elb for more
+    information.
+    """
 
 import boto3
 import gzip
@@ -40,38 +39,10 @@ from elb_parsers import ALBParser, CLBParser
 # fail fast if missing required configuration
 ES_HOSTNAME = os.environ["ELASTIC_SEARCH_HOSTNAME"]
 
-# the rest has defaults
+# the rest have defaults
 ELB_TYPE = os.environ.get("ELB_TYPE", "ALB")
 ES_INDEX_PREFIX = os.environ.get("INDEX_PREFIX", "elb")
-BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1000"))
-
-
-@lru_cache(maxsize=1)
-def s3():
-    return boto3.resource("s3")
-
-
-# @lru_cache(maxsize=1)
-def request_auth():
-    # session token only exists when running in Lambda, so we'll compose
-    # args with it optional
-    auth_args = {}
-    auth_args['aws_access_key']         = os.environ["AWS_ACCESS_KEY_ID"]
-    auth_args['aws_secret_access_key']  = os.environ["AWS_SECRET_ACCESS_KEY"]
-    auth_args['aws_region']             = os.environ["AWS_REGION"]
-    auth_args['aws_service']            = "es"
-    auth_args['aws_host']               = ES_HOSTNAME
-    if "AWS_SESSION_TOKEN" in os.environ:
-        auth_args["aws_token"]          = os.environ["AWS_SESSION_TOKEN"]
-    return AWSRequestsAuth(**auth_args)
-
-
-@lru_cache(maxsize=1)
-def parser():
-    if ELB_TYPE == "CLB":
-        return CLBParser()
-    else:
-        return ALBParser()
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1000")) * 2
 
 
 def lambda_handler(event, context):
@@ -87,7 +58,7 @@ def process_file(s3_bucket, s3_key):
     """ Downloads, parses, and uploads; extracted for testing
         """
     # each Elasticsearch record needs a unique ID, so we'll hash the bucket and filename
-    base_id = hashlib.sha1((s3_bucket + s3_key).encode('utf-8')).hexdigest()
+    base_id = hashlib.sha256((s3_bucket + s3_key).encode('utf-8')).hexdigest()
     print(f"processing s3://{s3_bucket}/{s3_key}; base ID {base_id}")
     obj = s3().Object(s3_bucket, s3_key)
     buffer = io.BytesIO()
@@ -131,3 +102,30 @@ def do_upload(batch):
                         data="\n".join(batch) + "\n")
     if rsp.status_code != 200:
         raise Exception(f"unable to upload: {rsp.text}")
+
+
+@lru_cache(maxsize=1)
+def s3():
+    return boto3.resource("s3")
+
+
+@lru_cache(maxsize=1)
+def request_auth():
+    # session token only exists when running in Lambda, so must construct args
+    auth_args = {}
+    auth_args['aws_access_key']         = os.environ["AWS_ACCESS_KEY_ID"]
+    auth_args['aws_secret_access_key']  = os.environ["AWS_SECRET_ACCESS_KEY"]
+    auth_args['aws_region']             = os.environ["AWS_REGION"]
+    auth_args['aws_service']            = "es"
+    auth_args['aws_host']               = ES_HOSTNAME
+    if "AWS_SESSION_TOKEN" in os.environ:
+        auth_args["aws_token"]          = os.environ["AWS_SESSION_TOKEN"]
+    return AWSRequestsAuth(**auth_args)
+
+
+@lru_cache(maxsize=1)
+def parser():
+    if ELB_TYPE == "CLB":
+        return CLBParser()
+    else:
+        return ALBParser()
