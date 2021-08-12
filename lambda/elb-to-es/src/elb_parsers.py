@@ -28,19 +28,19 @@ import re
 
 class BaseParser:
     """ Common functionality for all parsers.
-        """    
-    
+        """
+
     def __init__(self):
         super().__init__()
         self._url_regex = re.compile((
-            r'(?P<request_protocol>[^:]+)://'   
+            r'(?P<request_protocol>[^:]+)://'
             r'(?P<request_host>[^:/]+)'
             r':?(?P<request_port>[\d]+)/'
             r'(?P<request_path>[^?]+)'
             r'[?]?(?P<request_query>.*)'
         ))
-    
-    
+
+
     def parse(self, buffer):
         """ Expects a buffer containing individual log lines, and parses those
             lines using the subclass regex.
@@ -65,42 +65,42 @@ class BaseParser:
 class ALBParser(BaseParser):
     """ Extracts records from an Application load balancer.
         """
-    
+
     def __init__(self):
         super().__init__()
         self._regex = re.compile((
-            r'(?P<request_type>[^ ]+) '                              
-            r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '  
-            r'(?P<elb_name>[^ ]+) '                                
-            r'(?P<client_ip>[^:]+):'                                
-            r'(?P<client_port>[^ ]+) '                                
-            r'(?P<backend_address>[^ ]+) '                                
-            r'(?P<request_processing_time>[0-9.-]+) '                             
-            r'(?P<backend_processing_time>[0-9.-]+) '                             
-            r'(?P<response_processing_time>[0-9.-]+) '                             
-            r'(?P<elb_status_code>[^ ]+) '                                
-            r'(?P<backend_status_code>[^ ]+) '                                
-            r'(?P<received_bytes>\d+) '                                  
-            r'(?P<sent_bytes>\d+) '                                  
-            r'"(?P<request_method>[^ ]+) '                              
-            r'(?P<request_url>[^ ]+) '                                
-            r'(?P<http_version>[^ ]+)" '                               
-            r'"(?P<user_agent>.+?)" '                                
-            r'(?P<ssl_cipher>[^ ]+) '                                
-            r'(?P<ssl_protocol>[^ ]+) '                                
-            r'(?P<target_group_arn>[^ ]+) '                                
-            r'"(?P<trace_id>[^ ]+?)" '                             
-            r'"(?P<sni_domain_name>[^ ]+)" '                              
-            r'"(?P<chosen_cert_arn>[^ ]+)" '                              
-            r'(?P<matched_rule_priority>[^ ]+) '                                
-            r'(?P<request_creation_time>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '  
-            r'"(?P<actions_executed>[^ ]+)" '                              
-            r'"(?P<redirect_url>[^ ]+)" '                              
-            r'"(?P<error_reason>[^ ]+)" '                              
-            r'"(?P<target_port_list>[^ ]+)" '                        
-            r'"(?P<target_status_list>[^ ]+)" '                             
-            r'"(?P<classification>[^ ]+)" '                              
-            r'"(?P<classification_reason>[^ ]+)"'                               
+            r'(?P<request_type>[^ ]+) '
+            r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '
+            r'(?P<elb_name>[^ ]+) '
+            r'(?P<client_ip>[^:]+):'
+            r'(?P<client_port>[^ ]+) '
+            r'(?P<backend_address>[^ ]+) '
+            r'(?P<request_processing_time>[0-9.-]+) '
+            r'(?P<backend_processing_time>[0-9.-]+) '
+            r'(?P<response_processing_time>[0-9.-]+) '
+            r'(?P<elb_status_code>[^ ]+) '
+            r'(?P<backend_status_code>[^ ]+) '
+            r'(?P<received_bytes>\d+) '
+            r'(?P<sent_bytes>\d+) '
+            r'"(?P<request_method>[^ ]+) '
+            r'(?P<request_url>[^ ]+) '
+            r'(?P<http_version>[^ ]+)" '
+            r'"(?P<user_agent>.+?)" '
+            r'(?P<ssl_cipher>[^ ]+) '
+            r'(?P<ssl_protocol>[^ ]+) '
+            r'(?P<target_group_arn>[^ ]+) '
+            r'"(?P<trace_id>[^ ]+?)" '
+            r'"(?P<sni_domain_name>[^ ]+)" '
+            r'"(?P<chosen_cert_arn>[^ ]+)" '
+            r'(?P<matched_rule_priority>[^ ]+) '
+            r'(?P<request_creation_time>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '
+            r'"(?P<actions_executed>[^ ]+)" '
+            r'"(?P<redirect_url>[^ ]+)" '
+            r'"(?P<error_reason>[^ ]+)" '
+            r'"(?P<target_port_list>[^ ]+)" '
+            r'"(?P<target_status_list>[^ ]+)" '
+            r'"(?P<classification>[^ ]+)" '
+            r'"(?P<classification_reason>[^ ]+)"'
         ))
 
     def parse(self, buffer):
@@ -121,22 +121,22 @@ class CLBParser(BaseParser):
         self._regex = re.compile(
             (
             r'(?P<timestamp>\d{4}-\d{2}-\d{2}T\d+:\d+:\d+\.\d+Z) '
-            r'(?P<elb_name>[^ ]+) '                         
-            r'(?P<client_ip>[^:]+):'                                
-            r'(?P<client_port>[^ ]+) '                            
-            r'(?P<backend_address>[^ ]+) '  
-            r'(?P<request_processing_time>[0-9.-]+) ' 
-            r'(?P<backend_processing_time>[0-9.-]+) ' 
+            r'(?P<elb_name>[^ ]+) '
+            r'(?P<client_ip>[^:]+):'
+            r'(?P<client_port>[^ ]+) '
+            r'(?P<backend_address>[^ ]+) '
+            r'(?P<request_processing_time>[0-9.-]+) '
+            r'(?P<backend_processing_time>[0-9.-]+) '
             r'(?P<response_processing_time>[0-9.-]+) '
-            r'(?P<elb_status_code>\d{3}) '   
-            r'(?P<backend_status_code>\d{3}) '  
-            r'(?P<received_bytes>\d+) ' 
-            r'(?P<sent_bytes>\d+) '  
-            r'"(?P<request_method>[^ ]+) '                              
-            r'(?P<request_url>[^ ]+) '    
-            r'(?P<http_version>[^ ]+)" '                                     
-            r'"(?P<user_agent>.+?)" '                         
-            r'(?P<ssl_cipher>[^ ]+) '                                
-            r'(?P<ssl_protocol>[^ ]+)'        
+            r'(?P<elb_status_code>\d{3}) '
+            r'(?P<backend_status_code>\d{3}) '
+            r'(?P<received_bytes>\d+) '
+            r'(?P<sent_bytes>\d+) '
+            r'"(?P<request_method>[^ ]+) '
+            r'(?P<request_url>[^ ]+) '
+            r'(?P<http_version>[^ ]+)" '
+            r'"(?P<user_agent>.+?)" '
+            r'(?P<ssl_cipher>[^ ]+) '
+            r'(?P<ssl_protocol>[^ ]+)'
             ))
 

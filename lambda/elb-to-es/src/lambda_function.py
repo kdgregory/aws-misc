@@ -52,8 +52,8 @@ def lambda_handler(event, context):
         s3_bucket = rec["s3"]["bucket"]["name"]
         s3_key = rec["s3"]["object"]["key"]
         process_file(s3_bucket, s3_key)
-        
-        
+
+
 def process_file(s3_bucket, s3_key):
     """ Downloads, parses, and uploads; extracted for testing
         """
@@ -78,7 +78,7 @@ def upload(base_id, entries):
             batch = []
     do_upload(batch)
 
-    
+
 def process_record(base_id, recnum, data):
     """ Converts a single log entry into an Elasticsearch bulk-update record
         """
