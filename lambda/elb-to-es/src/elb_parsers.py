@@ -17,8 +17,8 @@
     class. Each provides a parse() method, which transforms the source data
     (passed as a BytesIO object) into a list of dicts containing log entries.
 
-    If unable to parse the file, raises a ParseException that describes the
-    problem.
+    Logs (and skips) files that can't be loaded or log entries that can't be
+    parsed.
     """
 
 import gzip
@@ -26,13 +26,6 @@ import io
 import re
 
 
-class ParseException(Exception):
-    
-    def __init__(self, message, input_line=None):
-        self.message = message
-        self.input_line = input_line
-        
-        
 class BaseParser:
     """ Common functionality for all parsers.
         """    
@@ -57,14 +50,15 @@ class BaseParser:
         result = []
         for line in content.readlines():
             match = self._regex.match(line)
-            if not match:
-                raise ParseException("failed to match regex", line)
-            entry = dict(match.groupdict())
-            request_url = entry.get('request_url', "")
-            url_match = self._url_regex.match(request_url)
-            if url_match:
-                entry.update(url_match.groupdict())
-            result.append(entry)
+            if match:
+                entry = dict(match.groupdict())
+                request_url = entry.get('request_url', "")
+                url_match = self._url_regex.match(request_url)
+                if url_match:
+                    entry.update(url_match.groupdict())
+                result.append(entry)
+            else:
+                print(f"log entry failed to match regex: {line}")
         return result
 
 
@@ -113,9 +107,9 @@ class ALBParser(BaseParser):
         try:
             unzipped = gzip.decompress(buffer.getvalue())
             buffer = io.BytesIO(unzipped)
+            return super().parse(buffer)
         except Exception as ex:
-            raise ParseException("failed to parse file") from ex
-        return super().parse(buffer)
+            print(f"failed to parse file: {ex}")
 
 
 class CLBParser(BaseParser):

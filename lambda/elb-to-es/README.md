@@ -86,6 +86,10 @@ any case), 256 MB of memory should be sufficient. Look at the logged statistics 
 are close to that (the Lambda will abort if you need more). However, consider increasing memory
 to 1024 MB for the improved CPU that comes with it.
 
+The Lambda uses a regular expression to parse log lines, and there are some log lines that it 
+can't parse (typically crafted by hackers to break web servers). In this case, the Lambda skips
+the unparseable line and logs an error that shows the line's content.
+
 The Lambda relies on Elasticsearch auto-creating any required indexes. The Lambda names each
 index after the date of the records it contains: for example, `elb-2021-08-01`. You can
 configure the prefix (here "elb") using the `ES_INDEX_PREFIX` environment variable. For a low
