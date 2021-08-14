@@ -17,18 +17,18 @@
 
 """
 A command-line utility to retrieve log messages from a CloudWatch Logs log group.
-Can read a single stream, or all streams in the log group.
+Can read a single stream, or a subset of streams in a single log group.
 
 Invocation:
 
-    logs_reader LOG_GROUP_NAME [ LOG_STREAM_NAME ... ]
+    logs_reader LOG_GROUP_NAME [ LOG_STREAM_PREFIX ... ]
 
 Where:
 
-    LOG_GROUP_NAME  is the group to read.
-    LOG_STREAM_NAME is one or more log streams within that group to read. If
-                    omitted, all streams are retrieved in order of last message
-                    timestamp.
+    LOG_GROUP_NAME      is the group to read.
+    LOG_STREAM_PREFIX   identifies one or more log streams within that group to read.
+                        If provided as a prefix, all log streams with that prefix are
+                        read; if omitted, all log streams for the log group are read.
 
 Notes:
 
@@ -42,6 +42,11 @@ Notes:
         ingestionTime       the time the message was ingested by CloudWatch, as
                             millis since epoch.
         message             the logged message.
+
+    All messages for a single log stream are output before moving on to the next.
+
+    Messages are output in timestamp order, and when processing multiple streams
+    the streams are ordered based on the timestamp of their last message.
 """
 
 import boto3
@@ -54,16 +59,22 @@ from datetime import datetime, timezone
 client = boto3.client('logs')
 
 
-def retrieve_log_stream_names(log_group_name):
-    """ Retrieves all of the log streams for a given log group. These streams are ordered
-        by last event time (which implies that only streams with events are returned).
+def retrieve_log_stream_names(log_group_name, prefixes=None):
+    """ Retrieves streams for the given log group with the specified prefixes.
+        If no prefixes are provided, returns all streams for the log group.
+        Streams will be sorted by the timestamp of the last log event.
     """
     streams = []
     paginator = client.get_paginator('describe_log_streams')
-    for page in paginator.paginate(logGroupName=log_group_name, orderBy='LastEventTime'):
-        for stream in page['logStreams']:
-            streams.append(stream['logStreamName'])
-    return streams
+    if prefixes:
+        for prefix in prefixes:
+            for page in paginator.paginate(logGroupName=log_group_name, logStreamNamePrefix=prefix):
+                streams += page['logStreams']
+    else:
+        for page in paginator.paginate(logGroupName=log_group_name):
+            streams += page['logStreams']
+    streams.sort(key=lambda x: x['lastEventTimestamp'])
+    return [x['logStreamName'] for x in streams]
 
 
 def read_log_messages(log_group_name, log_stream_name):
@@ -89,9 +100,10 @@ if __name__ == "__main__":
         sys.exit(1)
     group_name = sys.argv[1]
     if len(sys.argv) == 2:
-        stream_names = retrieve_log_stream_names(group_name)
+        prefixes = None
     else:
-        stream_names = sys.argv[2:]
+        prefixes = sys.argv[2:]
+    stream_names = retrieve_log_stream_names(group_name, prefixes)
     for stream_name in stream_names:
         for event in read_log_messages(group_name, stream_name):
             print(json.dumps(event))
