@@ -25,6 +25,10 @@ Parameters:
     Description:                        "The fully-qualified hostname of your Elasticsearch cluster"
     Type:                               "String"
 
+  ElasticsearchArn:
+    Description:                        "The ARN of your Elasticsearch cluster"
+    Type:                               "String"
+
   IndexPrefix:
     Description:                        "The prefix used for indexes that will be cleaned by this Lambda"
     Type:                               "String"
@@ -59,6 +63,16 @@ Resources:
                 -                       "logs:CreateLogStream"
                 -                       "logs:PutLogEvents"
               Resource:                 [ !GetAtt LogGroup.Arn ]
+        -
+          PolicyName:                   "ElasticsearchUpdate"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "es:ESHttpGet" 
+                -                       "es:ESHttpDelete"
+              Resource:                 [ !Sub "${ElasticsearchArn}/*" ]
 
 
   LogGroup:
