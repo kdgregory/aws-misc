@@ -1,4 +1,4 @@
-# Copyright 2018 Keith D Gregory
+# Copyright 2018-2021 Keith D Gregory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,14 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ################################################################################
-#
-# This function removes old Elasticsearch indexes. It is configured with a base
-# index name, and the number of indexes to keep, and deletes older indexes until
-# it reaches the desired number (note: requires indexes to be sortable by age).
-#
-# Contains example code from https://github.com/DavidMuller/aws-requests-auth
-#
-################################################################################
+
+""" This function removes old Elasticsearch indexes, provided that they follow
+    the pattern "BASENAME-SUFFIX", where "SUFFIX" is a sortable value related
+    to index age (eg, date as "YYYY-MM-DD").
+    """
 
 import json
 import os
@@ -39,17 +36,19 @@ def lambda_handler(event, context):
                            aws_service='es',
                            aws_host=es_host)
 
-    indexResponse = requests.get('https://' + es_host + '/*', auth=auth)
+    indexResponse = requests.get(f"https://{es_host}/*", auth=auth)
     if (indexResponse.status_code != 200):
-        raise Exception('failed to retrieve indexes: ' + indexResponse.text)
+        raise Exception(f"failed to retrieve indexes: {indexResponse.text}")
         
     indexData = indexResponse.json()
     indexNames = sorted([x for x in indexData.keys() if x.startswith(index_prefix)])
     indexesToDelete = indexNames[0 : max(0, len(indexNames) - num_indexes_to_keep)]
+
+    print(f"number of selected indexes: {len(indexNames)}, number to delete: {len(indexesToDelete)}")
     
     for idx in indexesToDelete:
-        deleteResponse = requests.delete('https://' + es_host + '/' + idx, auth=auth)
+        deleteResponse = requests.delete(f"https://{es_host}/{idx}", auth=auth)
         if deleteResponse.status_code == 200:
-            print("deleted " + idx)
+            print(f"deleted {idx}")
         else:
-            raise Exception("failed to delete " + idx + ": " + deleteResponse.text)
+            raise Exception(f"failed to delete {idx}: {deleteResponse.text}")
