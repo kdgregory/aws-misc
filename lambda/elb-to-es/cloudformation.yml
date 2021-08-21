@@ -66,14 +66,17 @@ Resources:
               Action:
                 -                       "s3:GetObject"
                 -                       "s3:HeadObject"
-              Resource:                 [ !Sub "arn:aws:s3:::${LogsBucket}/${LogsPrefix}*" ]
+              Resource:                 !Sub "arn:aws:s3:::${LogsBucket}/${LogsPrefix}*"
         - PolicyName:                   "WriteToDestination"
           PolicyDocument:
             Version:                    "2012-10-17"
             Statement:
               Effect:                   "Allow"
-              Action:                   [ "es:ESHttpGet", "es:ESHttpPost", "es:ESHttpPut" ]
-              Resource:                 [ !Sub "${ElasticsearchArn}/*" ]
+              Action:                   
+                -                       "es:ESHttpGet"
+                -                       "es:ESHttpPost"
+                -                       "es:ESHttpPut"
+              Resource:                 !Sub "${ElasticsearchArn}/*"
 
 
   LogGroup:

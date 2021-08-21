@@ -49,7 +49,7 @@ The easiest way to build and deploy this Lambda is with `make`. The provided Mak
 relevant targets:
 
 * `build`: builds the deployment bundle (`elasticsearch_index_cleanup.zip`) and stores it in the
-  project directory. You would normally run this directly only if you're making changes and want
+  project directory. You would normally invoke this target only if you're making changes and want
   to upload manually.
 
 * `upload`: builds the deployment bundle and then uploads it to an S3 bucket. You must provide
@@ -65,9 +65,10 @@ relevant targets:
   ```
 
 * `deploy`: builds the deployment bundle, uploads it to S3, and then creates a CloudFormation
-  stack (named `ElasticsearchIndexCleanup`, which is also the name of the created Lamdba) that
-  creates the Lambda and all related resources. You must provide basic connectivity information,
-  and may override the stack (Lambda) name, configured index pattern and number of indexes to keep.
+  stack (by default named `ElasticsearchIndexCleanup`, which is also the name of the created
+  Lamdba) that creates the Lambda and all related resources. You must provide basic connectivity
+  information, and may override the stack (Lambda) name, configured index pattern and number of
+  indexes to keep.
 
   ```
   # option 1: use defaults

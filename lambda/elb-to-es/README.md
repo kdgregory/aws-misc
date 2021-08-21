@@ -48,32 +48,40 @@ Environment variables:
 
 ## Building and Deploying
 
-Assuming that you have `make` installed, you can use it to produce the Lambda deployment bundle
-and upload it to S3:
+The easiest way to build and deploy this Lambda is with `make`. The provided Makefile has three
+relevant targets:
 
-```
-make upload S3_BUCKET=com-example-deployment S3_KEY=alb-to-es.zip
-```
+* `build`: builds the deployment bundle (`elb-to-es.zip`) and stores it in the project directory.
+  You would normally invoke this target only if you're making changes and want to upload manually.
 
-Once uploaded, you can then deploy with the [provided CloudFormation template](cloudformation.yml).
-There are several parameters that you must configure for this template. For example, using my
-[cf-runner](../../utils/cf-runner.py) script:
+* `upload`: builds the deployment bundle and then uploads it to an S3 bucket. You must provide
+  the name of the bucket when invoking this target; you can optionally give the bundle a different
+  name:
 
-```
-cf-runner.py ALB-To-Elasticsearch \
-             cloudformation.yml \
-             SourceBucket=com-example-deployment \
-             SourceKey=alb-to-es.zip \
-             LogsBucket=com-example-logs \
-             LogsPrefix=LoadBalancer/ \
-             ElasticsearchHostName=search-logs-9hwrfm5ip2md537eqpt5jspqm.us-east-1.es.amazonaws.com \
-             ElasticsearchArn=arn:aws:es:us-east-1:123456789012:domain/logs
-```
+  ```
+  # option 1, use predefined key
+  make upload S3_BUCKET=my_deployment_bucket
 
-This template creates the Lambda itself, its log group, and its execution rule. One thing that it
-does _not_ do is configure the bucket to notify the Lamdba. With CloudFormation, notifications must
-be configured at the time you create the bucket, and you will normally create that bucket in a base
-infrastructure script.
+  # option 2, use explicit key
+  make upload S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip
+  ```
+
+* `deploy`: builds the deployment bundle, uploads it to S3, and then creates a CloudFormation
+  stack (by default named `ELB-Elasticsearch-Upload`, which is also the name of the created
+  Lamdba) that creates the Lambda and all related resources. You must provide basic connectivity
+  information, and may override the stack (Lambda) name and configured index pattern.
+
+  ```
+  # option 1: use defaults
+  make deploy S3_BUCKET=my_deployment_bucket LOGS_BUCKET=my_logging_bucket LOGS_PREFIX=LoadBalancer/ ES_HOSTNAME=search-example-3hpfi5df2mw5m7trqp5qjmespm.us-east-1.es.amazonaws.com ES_ARN=arn:aws:es:us-east-1:123456789012:domain/example
+
+  # option 2: specify everything
+  make deploy STACK_NAME=LoadBalancerLogShuffler S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip LOGS_BUCKET=my_logging_bucket LOGS_PREFIX=LoadBalancer/ ES_HOSTNAME=search-example-3hpfi5df2mw5m7trqp5qjmespm.us-east-1.es.amazonaws.com ES_ARN=arn:aws:es:us-east-1:123456789012:domain/example INDEX_PREFIX=elb-
+  ```
+
+One thing that this deployment process does _not_ do is configure the bucket to notify the Lamdba.
+With CloudFormation, notifications must be configured at the time you create the bucket, and you
+will normally create that bucket in a base infrastructure script.
 
 The simplest solution to this problem is to update the Lambda's trigger in the Console.
 

@@ -8,34 +8,56 @@ performance of CloudWatch Logs operations such as Insights, it's confusing to se
 them all in the Console.
 
 
-## Deploying Manually
+## Configuration
 
-Lambda Configuration
+Basic Lambda configuration:
 
-* Runtime: Python 3.7
-* Default memory (128M) is sufficient unless you have a large number of groups
-  and/or streams. Increasing to 256M will improve performance slightly.
-* Timeout depends on the number of groups/streams, but 120 seconds should be
-  OK for most purposes.
-* Run outside of VPC; needs access to CloudWatch Logs endpoint.
-* Trigger via scheduled CloudWatch Event.
+  * Runtime: Python 3.7+
+  * Required Memory: 256 MB
+  * Timeout: 60 seconds (increase if you have lots of log groups/streams)
 
-Permissions (in addition to basic Lambda permissions):
+IAM Permissions:
 
+* `AWSLambdaBasicExecutionRole`/`AWSLambdaVPCAccessExecutionRole` or equivalent explicit policies.
 * `logs:DeleteLogStream`
 * `logs:DescribeLogGroups`
 * `logs:DescribeLogStreams`
 * `logs:GetLogEvents`
 
+Trigger via EventBridge schedule.
 
-## Deploying with CloudFormation
 
-The file `cloudformation.yml` contains a CloudFormation template that creates
-the Lambda along with its log group, execution role, and event trigger.
+## Building and Deploying
 
-To run, you must first create a ZIPfile containing `lambda_function.py`, and
-then upload that ZIPfile to some place on S3. Finally, create a stack, providing
-the S3 bucket and key of the uploaded ZIPfile.
+The easiest way to build and deploy this Lambda is with `make`. The provided Makefile has three
+relevant targets:
+
+* `build`: builds the deployment bundle (`logs_cleanup.zip`) and stores it in the project directory.
+  You would normally invoke this target only if you're making changes and want to upload manually.
+
+* `upload`: builds the deployment bundle and then uploads it to an S3 bucket. You must provide
+  the name of the bucket when invoking this target; you can optionally give the bundle a different
+  name:
+
+  ```
+  # option 1, use predefined key
+  make upload S3_BUCKET=my_deployment_bucket
+
+  # option 2, use explicit key
+  make upload S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip
+  ```
+
+* `deploy`: builds the deployment bundle, uploads it to S3, and then creates a CloudFormation
+  stack that creates the Lambda and all related resources (by default named `CloudWatchLogsCleaner`,
+  which is also the name of the created Lamdba).
+
+  ```
+  # option 1: use defaults
+  make deploy S3_BUCKET=my_deployment_bucket
+
+  # option 2: configure what you can
+  make deploy STACK_NAME=CloudWatchCleaner S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip TIMEOUT=900
+  ```
 
 
 ## Usage Notes
