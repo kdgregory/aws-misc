@@ -57,15 +57,17 @@ Resources:
                 -                       "kinesis:DescribeStream"
                 -                       "kinesis:GetShardIterator"
                 -                       "kinesis:GetRecords"
-              Resource:                 [ !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}" ]
+              Resource:                 !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}"
         -
           PolicyName:                   "WriteToDestination"
           PolicyDocument:
             Version:                    "2012-10-17"
             Statement:
               Effect:                   "Allow"
-              Action:                   [ "kinesis:PutRecords" ]
-              Resource:                 [ !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${DestinationStreamName}" ]
+              Action:                   
+                -                       "kinesis:PutRecords"
+              Resource:                 !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${DestinationStreamName}"
+
 
   LambdaFunction:
     Type:                               "AWS::Lambda::Function"
@@ -78,11 +80,12 @@ Resources:
       Code: 
         S3Bucket:                       !Ref SourceBucket
         S3Key:                          !Ref SourceKey
-      MemorySize:                       128
-      Timeout:                          60
+      MemorySize:                       512
+      Timeout:                          30
       Environment: 
         Variables:
           DESTINATION_STREAM_NAME:      !Ref DestinationStreamName
+
 
   EventSource:
     Type:                               "AWS::Lambda::EventSourceMapping"
@@ -93,3 +96,39 @@ Resources:
       StartingPosition:                 LATEST
       BatchSize:                        100
       MaximumBatchingWindowInSeconds:   30
+
+
+  SubscriptionRole:
+    Type:                               "AWS::IAM::Role"
+    Properties:
+      RoleName:                         !Sub "${LambdaName}-SubscriptionRole"
+      AssumeRolePolicyDocument:
+        Version:                        "2012-10-17"
+        Statement:
+          Effect:                       "Allow"
+          Principal:
+            Service:                    !Sub "logs.${AWS::Region}.amazonaws.com"
+          Action:                       "sts:AssumeRole"
+      Policies:
+        -
+          PolicyName:                   "KinesisWriter"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "kinesis:Describe*"
+                -                       "kinesis:CreateStream"
+                -                       "kinesis:Put*"
+              Resource:                 !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}" 
+
+
+Outputs:
+
+  SubscriptionRoleOutput:
+    Description:                        "The ARN of a role that allows CloudWatchLogs to write to the source stream"
+    Value:                              !GetAtt SubscriptionRole.Arn
+
+  SourceArnOutput:
+    Description:                        "The ARN of a the source stream (exposed to make subscribing easier)"
+    Value:                              !Sub "arn:aws:kinesis:${AWS::Region}:${AWS::AccountId}:stream/${SourceStreamName}" 
