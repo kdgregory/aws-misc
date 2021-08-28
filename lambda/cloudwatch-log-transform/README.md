@@ -1,55 +1,58 @@
-This function is part of a pipeline that copies events from CloudWatch Logs into
-Elasticsearch. The entire pipeline consists of the following stages:
+This Lambda decomposes messages that have been written to a Kinesis stream by a CloudWatch
+Logs subscription, writing them to a destination stream as individual log events. See [this
+blog post](https://blog.kdgregory.com/2019/09/streaming-cloudwatch-logs-to.html) for more
+information about why this is necessary.
 
-1. An application (typically a Lambda function) writes events to CloudWatch Logs.
-2. A subscription on the log group copies records into a Kinesis stream.
-3. This function reads the records from the source Kinesis stream, transforms them
-   if necessary, and writes them to another Kinesis stream.
-4. Kinesis Firehose reads events from this second stream and writes them to
-   Elasticsearch.
+The specific transformations are:
 
-As part of step 3, this function performs the following transformations on the source
-records:
-
-* If they're not already JSON, they're converted to JSON with `timestamp`, `message`,
-  and `level` fields. The timestamp is formatted as an ISO-8601 datetime, and the
-  level is always `INFO`.
+* Multiple log events are broken out of the source Kinesis record and written as distinct
+  records on the destination stream.
+* If a log event is not JSON, it is transformed into a JSON object containing the fields
+  `timestamp`, `message`, and `level`. The timestamp is the log event timestamp reported
+  by CloudWatch, and is formatted as an ISO-8601 datetime (eg, "2021-08-23-11:15:12Z").
+  The level is always `INFO`.
+* If the log event is already JSON, it is examined and a `timestamp` field added if one
+  doesn't already exist, using the value/format above.
 * The origin log group and log stream names are added, as a child object under the key
-  `cloudwatch` (this object has two fields, `logGroup` and `logStream`).
+  `source`. This object has two fields, `logGroup` and `logStream`.
 * If the message appears to be a Lambda execution report, it is parsed, and the stats
   are stored in a sub-object under the key `lambda`.
-* If the message appears to by output from the Python logger, it is parsed, the original
-  timestamp and logged message are extracted, and the Lambda request ID is stored in a
-  child object under the key `lambda`.
+* If the message appears to be output from the [Lambda Python logging
+  library](https://docs.aws.amazon.com/lambda/latest/dg/python-logging.html#python-logging-lib),
+  it is parsed, the original timestamp and logged message are extracted, and the Lambda
+  request ID is stored in a child object under the key `lambda`.
 
-## Warnings and Caveats
+Warnings and Caveats
 
-This function makes a _best-effort_ attempt to post messages to the destination stream:
-it will retry any individual messages that are rejected by the destination stream
-(typically due to throttling at the shard level), until the Lambda times out. Messages that
-are rejected due to "internal error" are logged and dropped. Any other exception causes the
-function to abort (they typically indicate misconfiguration, and are unrecoverable).
+* All CloudWatch log groups must be subscribed to a _single_ Kinesis stream, which is then
+  processed by this Lambda and written to a _single_ Kinesis destination stream.
 
-You may also find duplicate messages: the Kinesis trigger will retry on any failed send.
-If this is due to persistent throttling, then the messages that _were_ successfully sent
-in a prior batch will be resent.
+* This function makes a _best-effort_ attempt to post messages to the destination stream:
+  it will retry any individual messages that are rejected by the destination stream
+  (typically due to throttling at the shard level), until the Lambda times out. Messages that
+  are rejected due to "internal error" are logged and dropped. Any other exception causes the
+  function to abort (they typically indicate misconfiguration, and are unrecoverable).
+
+* You may also find duplicate messages: the Kinesis trigger will retry on any failed send.
+  If this is due to persistent throttling, then the messages that _were_ successfully sent
+  in a prior batch will be resent.
 
 
 ## Lambda Configuration
 
-Runtime: Python 3.x
+General:
 
-Required Memory: 128 MB
+* Runtime: Python 3.7+
+* Recommended Memory: 512 MB (for CPU; actual memory requirement is much lower)
+* Recommended Timeout: 30 seconds
 
-Recommended Timeout: 60 sec
 
-
-### Environment variables
+Environment variables
 
 * `DESTINATION_STREAM_NAME`: the name of the Kinesis stream where messages will be written.
 
 
-### Permissions Required
+Permissions Required
 
 * `AWSLambdaBasicExecutionRole`
 * Source stream: `kinesis:DescribeStream`, `kinesis:GetRecords`, `kinesis:GetShardIterator`,
@@ -57,84 +60,55 @@ Recommended Timeout: 60 sec
 * Destination stream: `kinesis:PutRecords`
 
 
-## Deployment
+## Building and Deploying
 
-Deploying this function is a multi-step process, so I've created CloudFormation templates
-to help. I've also created a Serverless Application Model (SAM) template for the Lambda
-function.
+*Note:* The source and destination Kinesis streams must exist before deploying this Lambda.
 
-### Subscription Stream 
+The easiest way to build and deploy is with `make`. The provided Makefile has three targets
+for the Lambda:
 
-> Note: I assume that you already have a logging pipeline with destination stream, Firehose,
-  and Elasticsearch. If not, you can find CloudFormation templates to set up a pipeline
-  [here](https://github.com/kdgregory/log4j-aws-appenders/tree/master/examples/cloudformation).
+* `build`: builds the deployment bundle (`log_transform.zip`) and stores it in the project directory.
+  You would normally invoke this target only if you're making changes and want to upload manually.
 
-The Kinesis stream and CloudWatch subscription are created as two separate steps: the
-subscription can't be created until the stream has become active, and CloudFormation
-doesn't support tracking of resources (other than wait conditions, which require manual
-intervention).
+* `upload`: builds the deployment bundle and then uploads it to an S3 bucket. You must provide
+  the name of the bucket when invoking this target; you can optionally give the bundle a different
+  name:
 
-* The [Kinesis](cloudformation/kinesis.yml) template creates a single-shard Kinesis
-  stream and the IAM role that allows CloudWatch to write to that stream. The stream
-  name is specified via the `StreamName` parameter.
+  ```
+  # option 1, use predefined key
+  make upload S3_BUCKET=my_deployment_bucket
 
-* The [Subscription](cloudformation/subscription.yml) template subscribes a single
-  log group, specified with the `LogGroupName` parameter, to the Kinesis stream
-  specified with the `StreamName` parameter (the default values for this parameter
-  are the same in both templates).
+  # option 2, use explicit key
+  make upload S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip
+  ```
 
-  For actual use, you'll probably create multiple subscriptions; all can go to the
-  same stream (although you might need to increase the shard count to handle load).
-  In that case, simply replicate the subscription resource (giving each a unique
-  name), and hardcode the log group name rather than using a parameter.
+* `deploy`: builds the deployment bundle, uploads it to S3, and then creates a CloudFormation
+  stack (by default named `LogsTransformer`, which is also the name of the created Lamdba)
+  that creates the Lambda and all related resources. You must provide the names of the Kinesis
+  streams, and may override the stack (Lambda) name.
 
-### Lambda (CloudFormation)
+  ```
+  # option 1: use defaults
+  make deploy S3_BUCKET=my_deployment_bucket SOURCE_STREAM=subscription_dest DEST_STREAM=log_aggregator
 
-The [Lambda](cloudformation/lambda.yml) template creates the Lambda function to
-transform log events and write them to Kinesis, the execution role that lets it
-do its job, and an event source that attaches it to the Kinesis stream created
-above. It uses for following parameters to control its operation:
+  # option 2: specify stack name and deployment bundle
+  make deploy STACK_NAME=CloudWatchSubscriptionTransformer S3_BUCKET=my_deployment_bucket S3_KEY=my_bundle_name.zip SOURCE_STREAM=subscription_dest DEST_STREAM=log_aggregator
+  ```
 
-* `LambdaName`: The name of the function to create (default: `CloudWatchLogsTransformer`)
-* `SourceBucket: The S3 bucket where the deployment bundle can be found (see below).
-* `SourceKey: The path in that bucket for the deployment bundle (see below).
-* `SourceStreamName: The Kinesis stream that contains CloudWatch Logs events (which
-  you created above).
-* `DestinationStreamName: The Kinesis stream for transformed log messages (which you
-  created previously).
+In addition to creating all resources for the Lambda, this stack also creates a role that allows
+CloudWatch logs to write to the Kinesis stream. This role has the name `STACKNAME-SubscriptionRole`.
 
-CloudFormation requires you to provide a deployment bundle for a Lambda function, even
-when it's just a single file. So, from the project directory, execute the following
-commands, replacing `YOUR_BUCKET_NAME` with an existing bucket that belongs to you:
+Finally, the Makefile also provides a target to subscribe a CloudWatch log group to a Kinesis
+stream, using information from the created stack:
 
 ```
-zip /tmp/cloudwatch_logs_transformer.zip lambda_function.py 
+# option 1: use the default stack name
+make subscribe LOG_GROUP=my_logs
 
-aws s3 cp /tmp/cloudwatch_logs_transformer.zip s3://YOUR_BUCKET_NAME/cloudwatch_logs_transformer.zip
+# option 2: use a custom stack name
+make subscribe STACK_NAME=CloudWatchSubscriptionTransformer LOG_GROUP=my_logs
 ```
 
-The event source mapping is hardcoded to start reading from the end of the stream,
-with a maximum batch size of 100 records and a maximum delay of 30 seconds.
-
-
-### Serverless Application Model (SAM)
-
-To avoid manually ZIPping and uploading the Lambda function, you can [install the SAM
-cli](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html),
-then execute the following commands from within the `sam` sub-directory (again, replacing
-`YOUR_BUCKET_NAME` with your actual bucket name):
-
-```
-cd sam
-
-sam build
-
-sam package --s3-bucket YOUR_BUCKET_NAME --output-template output.yaml
-```
-
-You can then use the CloudFormation console to create the stack. This variant requires the
-same parameters as the CloudFormation variant, except the source bucket/key (because SAM
-will fill those in automatically). 
-
-*Note:* SAM wants the function source code to be in a `src` directory. To avoid duplication,
-I've used a symlink. If you're running on Windows you will need to copy the file explicitly.
+This last target implemented using the AWS CLI, not CloudFormation. You can subscribe as many
+log groups as you'd like to a single Kinesis stream, but must use the Console to remove the
+subscription.
