@@ -80,19 +80,26 @@ def retrieve_log_stream_names(log_group_name, prefixes=None):
 def read_log_messages(log_group_name, log_stream_name):
     """ Retrieves all events from the specified log group/stream, formats the timestamp
         as an ISO-8601 string, and sorts them by timestamp.
+
+        Note: filter_log_events() takes an excessive amount of time if there are a large
+        number of streams, even though we're only selecting from one, so instead we use 
+        get_log_events(). However, Boto doesn't provide a paginator for it, so we have to
+        handle the pagination ourselves. Fun!
     """
     events = []
-    paginator = client.get_paginator('filter_log_events')
-    for page in paginator.paginate(logGroupName=log_group_name, logStreamNames=[log_stream_name]):
+    request = {'logGroupName': log_group_name, 'logStreamName': log_stream_name} 
+    while True:
+        page = client.get_log_events(**request)
+        if page['nextForwardToken'] == request.get('nextToken'):
+            break;
+        request['nextToken'] = page['nextForwardToken']
         for event in page['events']:
             ts = event['timestamp']
             event['originalTimestamp'] = ts
-            event['timestamp'] = datetime.fromtimestamp(ts / 1000.0, timezone.utc).isoformat()
+            event['timestamp'] = datetime.fromtimestamp(ts / 1000, timezone.utc).isoformat()
             events.append(event)
-    # this step may be unnecessary, but I don't see any ordering guarantees
-    events.sort(key=lambda x: x['timestamp'])
+    events.sort(key=lambda x: x['timestamp'])   # API doesn't guarantee order
     return events
-
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
