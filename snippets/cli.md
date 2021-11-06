@@ -29,6 +29,16 @@ aws iam list-policies --scope Local --query 'Policies[].Arn'
 ```
 
 
+### List organization accounts, sorting by name
+
+Will return an error if the account is not a member of the organization or is not allowed to
+get the account list (really, if it's not the root account).
+
+```
+aws organizations list-accounts --output table --query 'sort_by(Accounts[],&Name)[].[Id,Name]'
+```
+
+
 ## Cloudwatch Logs
 
 ### List all log groups in the current region. 
@@ -54,7 +64,7 @@ done
 ```
 
 
-## EC2
+## EC2 / VPC
 
 ### List all EC2 regions.
 
@@ -63,6 +73,16 @@ Useful as a driver for other commands.
 ```
 aws ec2 describe-regions --query 'Regions[].RegionName | sort(@)' --output text
 ```
+
+### List all VPCs and Subnets in current region
+
+This outputs the list as a table showing VPC ID, Subnet ID, Availability Zone, and Subnet Name.
+The output is sorted by VPC and availability zone (assuming the sort_by operation is stable).
+
+```
+aws ec2 describe-subnets --query "sort_by(sort_by(Subnets, &AvailabilityZone), &VpcId)[*].[VpcId, SubnetId, AvailabilityZone, Tags[?Key=='Name'].Value|[0]]" --output table
+```
+
 
 ### List all instances running in the current region.
 
