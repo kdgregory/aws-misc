@@ -14,6 +14,7 @@ Program                                                 | Description
 [cf-runner.py](utils/cf-runner.py)                      | Creates/updates CloudFormation scripts, using an external store of common parameters
 [kinesis_reader.py](utils/kinesis_reader.py)            | Reads from a Kinesis stream, writing output as JSON.
 [logs_reader.py](utils/logs_reader.py)                  | Reads from a CloudWatch Logs log group/stream, writing output as JSON.
+[sm-env.py](utils/sm-env.py)                            | Populates environment variables from a Secrets Manager secret.
 
 
 ## Snippets
