@@ -20,9 +20,10 @@ Creates or updates a CloudFormation stack.
 
 This script is optimized for the case where you're deploying multiple related
 stacks. To that end, it retrieves saved configuration from a JSON file, and
-writes stack outputs to that file after successful create/update. An example
-use case is an infrastructure stack that outputs VPC and subnet IDs, which
-are then consumed by application stacks.
+writes stack outputs to that file after successful create/update.
+
+An example use case is an infrastructure stack that outputs VPC and subnet IDs,
+which are then consumed by application stacks.
 
 Invocation:
 
@@ -42,6 +43,10 @@ Notes:
 
   The config file name may not contain an '=' character, because that's
   used to identify whether it's a filename or a name/value pair.
+
+  If you make the config file read-only, this program warns the user but
+  does not fail. This is useful for the case where you're creating lots
+  of stacks, but don't care about their individual outputs.
 
   When updating an existing stack, you need only specify parameters that
   have changed; others will be retrieved from the stack.
@@ -96,12 +101,20 @@ class Config:
             If provided with a path, writes the default parameter file to that path.
             Otherwise overwrites the original default parameter file.
         """
-        self.saved_config.update(new_params)
+        if not new_params:
+            # no reason to update file, exit quietly
+            return
         if not path:
             path = self.saved_config_path
-        if path:
+        if not path:
+            # user didn't provide a config file, exit quietly
+            return
+        self.saved_config.update(new_params)
+        try:
             with open(path, "w") as f:
                 json.dump(self.saved_config, f)
+        except PermissionError:
+            print("unable to write stack outputs to configuration file")
 
 
 class Template:
