@@ -21,8 +21,8 @@ Creates or updates a CloudFormation stack.
 This script is optimized for the case where you're deploying multiple related
 stacks. To that end, it retrieves saved configuration from a JSON file, and
 writes stack outputs to that file after successful create/update. An example
-use case is an infrastructure stack that outputs "VpcId", which is then
-consumed by application stacks.
+use case is an infrastructure stack that outputs VPC and subnet IDs, which
+are then consumed by application stacks.
 
 Invocation:
 
@@ -36,12 +36,15 @@ Where:
                 (optional; if not provided, you must provide all required
                 template parameters via name/value pairs).
   NAME / VALUE  values for template parameters; these override any values
-                from the saved configuration.
+                from the saved configuration or current stack.
 
 Notes:
 
   The config file name may not contain an '=' character, because that's
   used to identify whether it's a filename or a name/value pair.
+
+  When updating an existing stack, you need only specify parameters that
+  have changed; others will be retrieved from the stack.
 """
 
 
@@ -57,35 +60,34 @@ class Config:
 
         Saved configuration is loaded when this object is constructed,
         but written explicitly.
-
-        There are two types of overrides: the first, "cli_params" is a
-        list of "NAME=VALUE" strings, assumed to be from a command-line
-        invocation. The second, "overrides", is a dict, assumed to be
-        built by the program. Of these, "cli_params" takes precedence,
-        with the default parameter file being lowest on the chain.
-
+        
+        There are two types of overrides: command-line parameters and
+        existing values. The former are provided at construction-time,
+        as a list of "NAME=VALUE" strings. The latter is provided when
+        calling get(). Command-line overrides take precedence, followed
+        by existing values, with the config file checked last.
+        
         Overrides are not written to the configuration file; they are
         valid for only the current instance.
     """
 
-    def __init__(self, saved_config_path, cli_params=[], overrides={}):
+    def __init__(self, saved_config_path, cli_params=None):
         self.saved_config_path = saved_config_path
         self.saved_config = {}
         if self.saved_config_path and os.path.exists(self.saved_config_path):
             with open(self.saved_config_path) as f:
                 self.saved_config = json.load(f)
         self.cli_params = {}
-        for arg in cli_params:
+        for arg in (cli_params or []):
             kv = arg.split('=')
             self.cli_params[kv[0]] = kv[1]
-        self.overrides = overrides
 
-    def get(self, name, default=None):
-        """ Returns the value of a parameter, applying overrides.
+    def get(self, name, existing=None):
+        """ Returns the value of a parameter from highest-precedence source.
         """
-        return self.cli_params.get(name,
-                    self.overrides.get(name,
-                         self.saved_config.get(name, default)))
+        return self.cli_params.get(name) \
+            or existing \
+            or self.saved_config.get(name)
 
     def update_and_save(self, new_params, path=None):
         """ Updates the default parameter file and saves it. This is called by the
@@ -181,8 +183,7 @@ class Stack:
     def _build_parameter_list(self):
         self.params_to_apply = []
         for name in template.param_names:
-            value = self.config.get(name,
-                        self.existing_params.get(name))
+            value = self.config.get(name, self.existing_params.get(name))
             if value:
                 self.params_to_apply.append({
                     'ParameterKey': name,
@@ -232,7 +233,7 @@ class Stack:
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print(__doc__)
+        print(__doc__, file=sys.stderr)
         sys.exit(1)
 
     stack_name = sys.argv[1]
