@@ -186,7 +186,7 @@ class Stack:
             for stack in page['Stacks']:
                 if stack['StackName'] == self.stack_name:
                     self.stack_id = stack['StackId']
-                    for param in stack['Parameters']:
+                    for param in stack.get('Parameters', []):
                         k = param['ParameterKey']
                         v = param['ParameterValue']
                         self.existing_params[k] = v
