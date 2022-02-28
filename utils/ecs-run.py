@@ -19,6 +19,7 @@ import argparse
 import boto3
 import json
 import os
+import re
 import sys
 
 
@@ -61,13 +62,13 @@ def exit_if_none(value, message):
     """ If the passed value is None, prints the specified message along with the
         program help text, and exits. If not None, returns the value.
         """
-    if value:
-        return value
-    else:
+    if value is None:
         print(message)
         print()
         arg_parser.print_help()
         sys.exit(1)
+    else:
+        return value
 
 
 def validate_cluster(cluster):
@@ -136,6 +137,59 @@ def validate_task_definition(taskdef_name, version):
         return taskdef['taskDefinitionArn']
     except:
         return exit_if_none(None, f"can't find task definition: {taskdef_name}")
+
+
+def retrieve_container_names(taskdef_name):
+    """ Retrieves the task definition and returns a list of the containers
+        that it contains.
+        """
+    taskdef = boto3.client('ecs').describe_task_definition(taskDefinition=taskdef_name).get('taskDefinition')
+    containers = []
+    for container in taskdef['containerDefinitions']:
+        containers.append(container['name'])
+    return containers
+
+
+def environment_overrides(container_names, envar_specs):
+    """ Applies environment variable overrides to the passed list
+        of containers. Returns a dict, keyed by container name,
+        where each item in the dict has name-value pairs for the
+        environment overrides that apply to that container.
+        """
+    matcher = re.compile(r"(([-\w]+):)*(\w+)=(.*)", re.ASCII)
+    overrides_by_container = dict([[k,dict()] for k in container_names])
+    for spec in envar_specs:
+        match = matcher.match(spec)
+        exit_if_none(match, f"invalid environment override: {spec}")
+        container_name = match.group(2)
+        env_name = match.group(3)
+        env_value = match.group(4)
+        if container_name:
+            container_override = overrides_by_container.get(container_name)
+            exit_if_none(container_override, f"invalid container for override: {container_name}")
+            container_override[env_name] = env_value
+        else:
+            for container_override in overrides_by_container.values():
+                container_override[env_name] = env_value
+    return overrides_by_container
+
+
+def construct_container_overrides(taskdef_name, envar_specs):
+    container_names = retrieve_container_names(taskdef_name)
+    env_overrides = environment_overrides(container_names, envar_specs)
+    result = []
+    for container_name in container_names:
+        container_env = []
+        for k,v in env_overrides.get(container_name, {}).items():
+            container_env.append({
+                "name": k,
+                "value": v
+            })
+        result.append({
+            "name": container_name,
+            "environment": container_env
+        })
+    return result
 
 
 if __name__ == "__main__":
