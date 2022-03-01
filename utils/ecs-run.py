@@ -27,31 +27,46 @@ import sys
 arg_parser = None
 
 
-def parse_args(argv=None):
+def parse_args(argv):
     """ Parses all arguments, defaulting to environment variables if present.
         """
     global arg_parser
     arg_parser = argparse.ArgumentParser(description="Runs an ECS task")
-    arg_parser.add_argument("--cluster", dest='cluster',
+    arg_parser.add_argument("--cluster",
+                            metavar="CLUSTER_NAME",
+                            dest='cluster',
                             help="""Cluster where the task will be run; default cluster if not specified
-                                 Defaults to value of ECS_CLUSTER environment variable.""")
-    arg_parser.add_argument("--subnets", dest='subnets', metavar="COMMA_SEPARATED_LIST",
-                           help="""One or more subnets where the task may run; must belong
+                                 Defaults to value of ECS_CLUSTER environment variable.
+                                 """)
+    arg_parser.add_argument("--subnets",
+                            metavar="COMMA_SEPARATED_LIST",
+                            dest='subnets',
+                            help="""One or more subnets where the task may run; must belong
                                 to the VPC associated with the cluster.
-                                Defaults to value of ECS_SUBNETS environment variable.""")
-    arg_parser.add_argument("--security_groups", "--sg", dest='security_groups', metavar="COMMA_SEPARATED_LIST",
-                           help="""Up to five security group IDs that will be associated with task.
-                                Defaults to value of ECS_SECURITY_GROUPS environment variable.""")
-    arg_parser.add_argument("--task_definition_version", dest='taskdef_version', metavar="VERSION",
-                           help="The version of the task definition; defaults to the latest version.")
-    arg_parser.add_argument('taskdef', metavar="TASK_DEFINITION_NAME",
+                                Defaults to value of ECS_SUBNETS environment variable.
+                                """)
+    arg_parser.add_argument("--security_groups", "--sg",
+                            metavar="COMMA_SEPARATED_LIST",
+                            dest='security_groups',
+                            help="""Up to five security group IDs that will be associated with task.
+                                Defaults to value of ECS_SECURITY_GROUPS environment variable.
+                                """)
+    arg_parser.add_argument("--task_definition_version",
+                            metavar="VERSION",
+                            dest='taskdef_version',
+                            help="The version of the task definition; defaults to the latest version.")
+    arg_parser.add_argument('taskdef',
+                            metavar="TASK_DEFINITION_NAME",
                             help="The name of the task definition")
-    arg_parser.add_argument('envars', nargs='*', metavar="ENVIRONMENT_OVERRIDE",
-                            help="""Environment variable overrides for the task. 
-                                 May be specified as KEY=VALUE for a single-container task;
-                                 must be specified as CONTAINER:KEY=VALUE if task has multiple
-                                 containers.""")
-    args = arg_parser.parse_args(argv or sys.argv)
+    arg_parser.add_argument('envars',
+                            nargs='*',
+                            metavar="ENVIRONMENT_OVERRIDE",
+                            help="""Environment variable overrides for the task. May be specified as
+                                    KEY=VALUE or CONTAINER:KEY=VALUE. Former applies to all containers
+                                    in the task definition, latter to a specific container.
+                                    """)
+
+    args = arg_parser.parse_args(argv)
     args.cluster = args.cluster or os.environ.get("ECS_CLUSTER")
     args.subnets = args.subnets or os.environ.get("ECS_SUBNETS")
     args.security_groups = args.security_groups or os.environ.get("ECS_SECURITY_GROUPS")
@@ -80,6 +95,7 @@ def validate_cluster(cluster):
     if len(clusters) != 1:
         exit_if_none(None, f"invalid cluster: {cluster}")
     return clusters[0]['clusterArn']
+
 
 def validate_subnets(subnet_spec):
     """ Splits the provided string and verifies that each subnet exists.
@@ -193,8 +209,31 @@ def construct_container_overrides(taskdef_name, envar_specs):
 
 
 if __name__ == "__main__":
-    args = parse_args()
+    args = parse_args(sys.argv[1:])
     args.cluster = validate_cluster(args.cluster)
     args.subnets = validate_subnets(args.subnets)
     args.security_groups = validate_security_groups(args.security_groups)
     args.taskdef = validate_task_definition(args.taskdef, args.taskdef_version)
+    response = boto3.client('ecs').run_task(
+                    taskDefinition=args.taskdef,
+                    cluster=args.cluster,
+                    count=1,
+                    enableECSManagedTags=True,
+                    enableExecuteCommand=True,
+                    launchType='FARGATE',
+                    networkConfiguration={
+                        'awsvpcConfiguration': {
+                            'subnets': args.subnets,
+                            'securityGroups': args.security_groups,
+                            'assignPublicIp': 'ENABLED' # TODO - make this optional
+                        }
+                    },
+                    overrides={
+                        'containerOverrides': construct_container_overrides(args.taskdef, args.envars),
+                        #'executionRoleArn': # TODO - allow override
+                        #'taskRoleArn': # TODO - allow override
+                    },
+                )
+    task_arn = response['tasks'][0]['taskArn']
+    task_id = re.sub(r".*/", "", task_arn)
+    print(f"task ID: {task_id}")
