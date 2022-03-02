@@ -210,30 +210,29 @@ def construct_container_overrides(taskdef_name, envar_specs):
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1:])
-    args.cluster = validate_cluster(args.cluster)
-    args.subnets = validate_subnets(args.subnets)
-    args.security_groups = validate_security_groups(args.security_groups)
-    args.taskdef = validate_task_definition(args.taskdef, args.taskdef_version)
-    response = boto3.client('ecs').run_task(
-                    taskDefinition=args.taskdef,
-                    cluster=args.cluster,
-                    count=1,
-                    enableECSManagedTags=True,
-                    enableExecuteCommand=True,
-                    launchType='FARGATE',
-                    networkConfiguration={
-                        'awsvpcConfiguration': {
-                            'subnets': args.subnets,
-                            'securityGroups': args.security_groups,
-                            'assignPublicIp': 'ENABLED' # TODO - make this optional
-                        }
-                    },
-                    overrides={
-                        'containerOverrides': construct_container_overrides(args.taskdef, args.envars),
-                        #'executionRoleArn': # TODO - allow override
-                        #'taskRoleArn': # TODO - allow override
-                    },
-                )
+
+    run_args = {
+        'taskDefinition': validate_task_definition(args.taskdef, args.taskdef_version),
+        'count': 1,
+        'launchType': 'FARGATE',
+        'enableECSManagedTags': True,
+        'enableExecuteCommand': True,
+        'networkConfiguration': {
+            'awsvpcConfiguration': {
+                'subnets': validate_subnets(args.subnets),
+                'securityGroups': validate_security_groups(args.security_groups),
+                'assignPublicIp': 'ENABLED' # TODO - make this optional
+            }
+        },
+        'overrides': {
+            'containerOverrides': construct_container_overrides(args.taskdef, args.envars),
+        }
+    }
+
+    if args.cluster:
+        run_args['cluster'] = validate_cluster(args.cluster)
+
+    response = boto3.client('ecs').run_task(**run_args)
     task_arn = response['tasks'][0]['taskArn']
     task_id = re.sub(r".*/", "", task_arn)
     print(f"task ID: {task_id}")
