@@ -31,45 +31,63 @@ def parse_args(argv):
     """ Parses all arguments, defaulting to environment variables if present.
         """
     global arg_parser
-    arg_parser = argparse.ArgumentParser(description="Runs an ECS task")
+    arg_parser = argparse.ArgumentParser(description="Runs an ECS task in Fargate.")
     arg_parser.add_argument("--cluster",
                             metavar="CLUSTER_NAME",
                             dest='cluster',
-                            help="""Cluster where the task will be run; default cluster if not specified
-                                 Defaults to value of ECS_CLUSTER environment variable.
-                                 """)
+                            help="""Cluster where the task will be run; default cluster if not
+                                    specified. Defaults to the value of the ECS_CLUSTER environment
+                                    variable.
+                                    """)
     arg_parser.add_argument("--subnets",
                             metavar="COMMA_SEPARATED_LIST",
                             dest='subnets',
-                            help="""One or more subnets where the task may run; must belong
-                                to the VPC associated with the cluster.
-                                Defaults to value of ECS_SUBNETS environment variable.
-                                """)
+                            help="""One or more subnets where the task may run; must belong to the
+                                    VPC associated with the cluster. Defaults to the value of the
+                                    ECS_SUBNETS environment variable.
+                                    """)
     arg_parser.add_argument("--security_groups", "--sg",
                             metavar="COMMA_SEPARATED_LIST",
                             dest='security_groups',
                             help="""Up to five security group IDs that will be associated with task.
-                                Defaults to value of ECS_SECURITY_GROUPS environment variable.
-                                """)
+                                    Defaults to the value of the ECS_SECURITY_GROUPS environment variable.
+                                    """)
+    arg_parser.add_argument("--task_execution_role", "--te",
+                            metavar="NAME_OR_ARN",
+                            dest='task_execution_role',
+                            help="""Name or ARN of the role used by ECS to launch the task, overriding
+                                    any role configured in the task definition. Defaults to the value
+                                    of the ECS_TASK_EXECUTION_ROLE environment variable.
+                                    """)
+    arg_parser.add_argument("--task_role", "--tr",
+                            metavar="NAME_OR_ARN",
+                            dest='task_role',
+                            help="""Name or ARN of the role used by the task itself, overriding any
+                                    role configured in the task definition. Defaults to the value of
+                                    the ECS_TASK_ROLE environment variable.
+                                    """)
     arg_parser.add_argument("--task_definition_version",
                             metavar="VERSION",
                             dest='taskdef_version',
-                            help="The version of the task definition; defaults to the latest version.")
+                            help="""The version of the task definition; defaults to the latest version.
+                                    """)
     arg_parser.add_argument('taskdef',
                             metavar="TASK_DEFINITION_NAME",
-                            help="The name of the task definition")
+                            help="""The name of the task definition
+                                    """)
     arg_parser.add_argument('envars',
-                            nargs='*',
+                            nargs=argparse.REMAINDER,
                             metavar="ENVIRONMENT_OVERRIDE",
                             help="""Environment variable overrides for the task. May be specified as
                                     KEY=VALUE or CONTAINER:KEY=VALUE. Former applies to all containers
                                     in the task definition, latter to a specific container.
                                     """)
-
     args = arg_parser.parse_args(argv)
     args.cluster = args.cluster or os.environ.get("ECS_CLUSTER")
     args.subnets = args.subnets or os.environ.get("ECS_SUBNETS")
     args.security_groups = args.security_groups or os.environ.get("ECS_SECURITY_GROUPS")
+    args.task_execution_role = args.task_execution_role or os.environ.get("ECS_TASK_EXECUTION_ROLE")
+    args.task_role= args.task_role or os.environ.get("ECS_TASK_ROLE")
     return args
 
 
@@ -137,6 +155,18 @@ def validate_security_groups(sg_spec):
     if (len(vpcs) > 1):
         exit_if_none(None, "security groups belong to different VPCs")
     return security_groups
+
+
+def validate_role(name_or_arn):
+    """ Verifies that the specified role exists, matching either by name or
+        full ARN. Returns the role ARN if valid.
+        """
+    paginator = boto3.client('iam').get_paginator('list_roles')
+    for page in paginator.paginate():
+        for role in page['Roles']:
+            if (name_or_arn == role['Arn']) or (name_or_arn == role['RoleName']):
+                return role['Arn']
+    exit_if_none(None, f"invalid role name/ARN: {name_or_arn}")
 
 
 def validate_task_definition(taskdef_name, version):
@@ -216,12 +246,12 @@ if __name__ == "__main__":
         'count': 1,
         'launchType': 'FARGATE',
         'enableECSManagedTags': True,
-        'enableExecuteCommand': True,
+        'enableExecuteCommand': False,  # TODO - add flag to enable this
         'networkConfiguration': {
             'awsvpcConfiguration': {
                 'subnets': validate_subnets(args.subnets),
                 'securityGroups': validate_security_groups(args.security_groups),
-                'assignPublicIp': 'ENABLED' # TODO - make this optional
+                'assignPublicIp': 'ENABLED' # TODO - add flag to switch this
             }
         },
         'overrides': {
@@ -231,6 +261,10 @@ if __name__ == "__main__":
 
     if args.cluster:
         run_args['cluster'] = validate_cluster(args.cluster)
+    if args.task_execution_role:
+        run_args['overrides']['executionRoleArn'] = validate_role(args.task_execution_role)
+    if args.task_role:
+        run_args['overrides']['taskRoleArn'] = validate_role(args.task_role)
 
     response = boto3.client('ecs').run_task(**run_args)
     task_arn = response['tasks'][0]['taskArn']
