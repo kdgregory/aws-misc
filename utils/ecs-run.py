@@ -66,6 +66,16 @@ def parse_args(argv):
                                     role configured in the task definition. Defaults to the value of
                                     the ECS_TASK_ROLE environment variable.
                                     """)
+    arg_parser.add_argument("--assign_public_ip",
+                            action='store_const',
+                            const=True,
+                            default=False,
+                            dest='assign_public_ip',
+                            help="""If present, the task is assigned a public IP. This only matters
+                                    when running in a public subnet; a public IP in a private subnet
+                                    has no effect. ECS will be unable to run the task if it's in a
+                                    public subnet without a public IP.
+                                     """)
     arg_parser.add_argument("--task_definition_version",
                             metavar="VERSION",
                             dest='taskdef_version',
@@ -251,7 +261,7 @@ if __name__ == "__main__":
             'awsvpcConfiguration': {
                 'subnets': validate_subnets(args.subnets),
                 'securityGroups': validate_security_groups(args.security_groups),
-                'assignPublicIp': 'ENABLED' # TODO - add flag to switch this
+                'assignPublicIp': 'ENABLED' if args.assign_public_ip else 'DISABLED'
             }
         },
         'overrides': {
