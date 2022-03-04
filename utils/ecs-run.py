@@ -71,10 +71,19 @@ def parse_args(argv):
                             const=True,
                             default=False,
                             dest='assign_public_ip',
-                            help="""If present, the task is assigned a public IP. This only matters
-                                    when running in a public subnet; a public IP in a private subnet
-                                    has no effect. ECS will be unable to run the task if it's in a
-                                    public subnet without a public IP.
+                            help="""Configures the task with a public IP. This only matters when running
+                                    in a public subnet; a public IP in a private subnet has no effect.
+                                    ECS will be unable to run the task if it's in a public subnet without
+                                    a public IP, or in a private subnet without a NAT.
+                                     """)
+    arg_parser.add_argument("--enable_exec",
+                            action='store_const',
+                            const=True,
+                            default=False,
+                            dest='enable_exec',
+                            help="""Configures the task to allow SSM Exec. This requires a task role
+                                    (either provided here as an override or in the task definition)
+                                    that grants ecs:ExecuteCommand.
                                      """)
     arg_parser.add_argument("--task_definition_version",
                             metavar="VERSION",
@@ -187,8 +196,8 @@ def validate_task_definition(taskdef_name, version):
     exit_if_none(taskdef_name, "Missing task definition name")
     if version:
         taskdef_name = f"{taskdef_name}:{version}"
-    # ECS throws if it can't find a task definition
     try:
+        # ECS throws if it can't find a task definition
         taskdef = boto3.client('ecs').describe_task_definition(taskDefinition=taskdef_name).get('taskDefinition')
         return taskdef['taskDefinitionArn']
     except:
@@ -206,7 +215,7 @@ def retrieve_container_names(taskdef_name):
     return containers
 
 
-def environment_overrides(container_names, envar_specs):
+def apply_environment_overrides(container_names, envar_specs):
     """ Applies environment variable overrides to the passed list
         of containers. Returns a dict, keyed by container name,
         where each item in the dict has name-value pairs for the
@@ -232,7 +241,7 @@ def environment_overrides(container_names, envar_specs):
 
 def construct_container_overrides(taskdef_name, envar_specs):
     container_names = retrieve_container_names(taskdef_name)
-    env_overrides = environment_overrides(container_names, envar_specs)
+    env_overrides = apply_environment_overrides(container_names, envar_specs)
     result = []
     for container_name in container_names:
         container_env = []
@@ -256,7 +265,7 @@ if __name__ == "__main__":
         'count': 1,
         'launchType': 'FARGATE',
         'enableECSManagedTags': True,
-        'enableExecuteCommand': False,  # TODO - add flag to enable this
+        'enableExecuteCommand': False,
         'networkConfiguration': {
             'awsvpcConfiguration': {
                 'subnets': validate_subnets(args.subnets),
@@ -275,6 +284,8 @@ if __name__ == "__main__":
         run_args['overrides']['executionRoleArn'] = validate_role(args.task_execution_role)
     if args.task_role:
         run_args['overrides']['taskRoleArn'] = validate_role(args.task_role)
+    if args.enable_exec:
+        run_args['enableExecuteCommand'] = True
 
     response = boto3.client('ecs').run_task(**run_args)
     task_arn = response['tasks'][0]['taskArn']
