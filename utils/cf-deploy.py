@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 ################################################################################
-# Copyright 2020 Keith D Gregory
+# Copyright Keith D Gregory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -27,7 +27,7 @@ which are then consumed by application stacks.
 
 Invocation:
 
-  cf-runner.py STACK_NAME TEMPLATE_PATH [CONFIG_FILE] [ NAME=VALUE [...] ]
+  cf-deploy.py STACK_NAME TEMPLATE_PATH [CONFIG_FILE] [ NAME=VALUE [...] ]
 
 Where:
 
