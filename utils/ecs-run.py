@@ -74,8 +74,10 @@ def parse_args(argv):
                             help="""Configures the task with a public IP. This only matters when running
                                     in a public subnet; a public IP in a private subnet has no effect.
                                     ECS will be unable to run the task if it's in a public subnet without
-                                    a public IP, or in a private subnet without a NAT.
-                                     """)
+                                    a public IP, or in a private subnet without a NAT. Also set if the
+                                    environment variable ECS_ASSIGN_PUBLIC_IP is set and contains "true"
+                                    (case-insensitive).
+                                    """)
     arg_parser.add_argument("--enable_exec",
                             action='store_const',
                             const=True,
@@ -105,6 +107,7 @@ def parse_args(argv):
     args.cluster = args.cluster or os.environ.get("ECS_CLUSTER")
     args.subnets = args.subnets or os.environ.get("ECS_SUBNETS")
     args.security_groups = args.security_groups or os.environ.get("ECS_SECURITY_GROUPS")
+    args.assign_public_ip = args.assign_public_ip or (os.environ.get("ECS_ASSIGN_PUBLIC_IP", "false").lower() == "true")
     args.task_execution_role = args.task_execution_role or os.environ.get("ECS_TASK_EXECUTION_ROLE")
     args.task_role= args.task_role or os.environ.get("ECS_TASK_ROLE")
     return args
