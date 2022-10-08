@@ -41,10 +41,15 @@
      - As sm-env.py, to output one or more environment variable assignments
        using keys from within JSON-encoded secrets.
 
-    Example: set multiple environment variables from contents of a JSON
-    secret (note that the $() construct executes the output):
+    Example: set standard Postgres environment variables based on the contents
+    of an RDS-standard secret:
 
-        $(sm-env.py DatabaseConnection PGHOST=QueueName QUEUE_URL=QueueUrl)
+        $(sm-env.py DatabaseUserSecret \
+                    PGHOST=host \
+                    PGPORT=port \
+                    PGUSER=username \
+                    PGPASSWORD=password \
+                    PGDATABASE=dbname)
     """
 
 import boto3
