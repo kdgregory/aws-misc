@@ -44,11 +44,11 @@
     Example: set standard Postgres environment variables based on the contents
     of an RDS-standard secret:
 
-        $(sm-env.py DatabaseUserSecret \
-                    PGHOST=host \
-                    PGPORT=port \
-                    PGUSER=username \
-                    PGPASSWORD=password \
+        $(sm-env.py DatabaseUserSecret \\
+                    PGHOST=host \\
+                    PGPORT=port \\
+                    PGUSER=username \\
+                    PGPASSWORD=password \\
                     PGDATABASE=dbname)
     """
 
