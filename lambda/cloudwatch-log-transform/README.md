@@ -1,3 +1,8 @@
+**This sub-project is obsolete.** Instead, use the transformation based on Eventbridge
+Pipes [here](../cloudwatch-log-transform-2).
+
+----
+
 This Lambda decomposes messages that have been written to a Kinesis stream by a CloudWatch
 Logs subscription, writing them to a destination stream as individual log events. See [this
 blog post](https://blog.kdgregory.com/2019/09/streaming-cloudwatch-logs-to.html) for more
