@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion:               "2010-09-09"
+Description:                            "Subscribes CloudWatch log groups to a Kinesis stream"
+
+Parameters:
+
+  PipelineName:
+    Description:                        "Name of the pipeline (used to name the subscription role and subscription filters)"
+    Type:                               "String"
+    Default:                            "CloudWatchLogsTransform"
+
+  StreamArn:
+    Description:                        "ARN of the Kinesis stream that will receive log messages"
+    Type:                               "String"
+
+  LogGroupName:
+    Description:                        "Name of the log group to be subscribed"
+    Type:                               "String"
+
+Resources:
+
+  SubscriptionRole:
+    Type:                               "AWS::IAM::Role"
+    Properties:
+      RoleName:                         !Sub "${PipelineName}-Subscription-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version:                        "2012-10-17"
+        Statement:
+          Effect:                       "Allow"
+          Principal:
+            Service:                    !Sub "logs.${AWS::Region}.amazonaws.com"
+          Action:                       "sts:AssumeRole"
+      Policies:
+        - PolicyName:                   "WriteToKinesis"
+          PolicyDocument:
+            Version:                    "2012-10-17"
+            Statement:
+              Effect:                   "Allow"
+              Action:
+                -                       "kinesis:Describe*"
+                -                       "kinesis:CreateStream"
+                -                       "kinesis:Put*"
+              Resource:                 !Ref StreamArn
+
+
+  Subscription:
+    Type:                               "AWS::Logs::SubscriptionFilter"
+    Properties: 
+      LogGroupName:                     !Ref LogGroupName
+      DestinationArn:                   !Ref StreamArn
+      RoleArn:                          !GetAtt SubscriptionRole.Arn
+      FilterName:                       !Ref PipelineName
+      FilterPattern:                    ""
+
+Outputs:
+
+  SubscriptionRoleArn:
+    Description:                        "The ARN of role that allows CloudWatch Logs to write to the source stream"
+    Value:                              !GetAtt SubscriptionRole.Arn
