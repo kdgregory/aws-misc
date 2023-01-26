@@ -100,3 +100,14 @@ for r in $(aws ec2 describe-regions --query 'Regions[].RegionName | sort(@)' --o
     aws ec2 describe-instances --region $r --query 'Reservations[].Instances[].[LaunchTime, PublicIpAddress, InstanceId, KeyName, InstanceType]' --output table ; \
 done
 ```
+
+
+## CloudFormation
+
+### Retrieve output value from CloudFormation stack
+
+This can be wrapped in a Bash function, replacing `OUTPUT_ID` by `$1`.
+
+```
+aws cloudformation describe-stacks --stack-name ${STACK_NAME} --output text --query "Stacks[].Outputs[?OutputKey=='OUTPUT_ID'].OutputValue" ;
+```
