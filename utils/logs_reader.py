@@ -87,7 +87,12 @@ def read_log_messages(log_group_name, log_stream_name):
         handle the pagination ourselves. Fun!
     """
     events = []
-    request = {'logGroupName': log_group_name, 'logStreamName': log_stream_name} 
+    request = {
+        'logGroupIdentifier': log_group_name,
+        'logStreamName': log_stream_name,
+        'startTime': 0,
+        'startFromHead': True
+    } 
     while True:
         page = client.get_log_events(**request)
         if page['nextForwardToken'] == request.get('nextToken'):
