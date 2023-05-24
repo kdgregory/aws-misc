@@ -19,7 +19,7 @@
 
 Assumes a role, with optional MFA code, and either starts a new shell or runs
 an arbitrary command using that role. Attempts to find the maximum allowed role
-duration, by starting at 8 hours and working down.
+duration, by starting at 12 hours and working down.
 
 Invocation:
 
@@ -94,10 +94,13 @@ def generate_session_name():
     return str(invoker['Account'])
 
 
+# we'll try each of these until one works
+ROLE_DURATIONS = [ 12, 8, 4, 2, 1, .5, .25 ]
+
 # this variable is a hack that lets us report the role duration from CLI invocation
 actualDuration = None
 
-def assume_role(arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=None):
+def assume_role(arnOrName, mfaCode=None):
     """ Assumes a role and returns its credentials.
 
         Arguments:
@@ -106,16 +109,6 @@ def assume_role(arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=Non
                               may belong to the current account or another account).
             mfaCode         - Optional: if present, the user's virtual MFA device is
                               retrieved and passed to the request with this code.
-            desiredDuration - The desired duration of role assumption, in seconds.
-                              This must be less than or equal to the role's allowed
-                              maximum duration. It defaults to 3600, which is the
-                              default duration for a new role. The maximum (per docs)
-                              is 43200.
-            durationRatio   - Optional: if passed, the assume-role operation will be
-                              retried, with each subsequent duration being calculated
-                              by multiplying the previous by this value (which must
-                              be < 1), until the duration value is < 900 (the minimum
-                              allowed).
 
         Returns the credentials extracted from the AssumeRole API.
 
@@ -133,20 +126,23 @@ def assume_role(arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=Non
         mfaArn = userArn.replace(":user/", ":mfa/")
         request['SerialNumber'] = mfaArn
         request['TokenCode']    = mfaCode
-    while True:
+    for desiredDuration in ROLE_DURATIONS:
+        desiredDuration *= 3600
         try:
             request['DurationSeconds'] = desiredDuration
             response = sts_client.assume_role(**request);
             actualDuration = desiredDuration
             return response['Credentials']
         except ClientError as ex:
-            if not durationRatio or str(ex).find('requested DurationSeconds exceeds') == -1:
+            # it would be nice if the SDK reported duration errors with a different exception
+            if str(ex).find('requested DurationSeconds exceeds') >= 0:
+                pass
+            else:
                 raise
-            if desiredDuration <= 900:
-                raise "exceeded allowed duration but requested duration is already at minimum"
-            desiredDuration = max(900, int(desiredDuration * durationRatio))
+    raise Exception("unable to find an acceptable duration (should never happen)")
 
-def run_with_role(command, printDuration, arnOrName, mfaCode=None, desiredDuration=3600, durationRatio=None):
+
+def run_with_role(command, printDuration, arnOrName, mfaCode=None):
     """ Runs an arbitrary command after assuming a role.
 
         The "command" argument is an array that's passed to execvpe(); the first element
@@ -157,7 +153,7 @@ def run_with_role(command, printDuration, arnOrName, mfaCode=None, desiredDurati
 
         All other arguments are per assume_role().
     """
-    credentials = assume_role(arnOrName, mfaCode, desiredDuration, durationRatio)
+    credentials = assume_role(arnOrName, mfaCode)
     if printDuration:
         print(f'assumed role duration = {actualDuration} seconds ({actualDuration / 3600.0} hours)')
     new_env = os.environ
@@ -170,7 +166,7 @@ def run_with_role(command, printDuration, arnOrName, mfaCode=None, desiredDurati
 
 
 if __name__ == "__main__":
-    kwargs = { 'desiredDuration': 43200, 'durationRatio': 0.5 }
+    kwargs = {}
     if os.path.basename(__file__) == 'assume-role.py':
         if len(sys.argv) < 2 or len(sys.argv) > 3:
             print(__doc__)
