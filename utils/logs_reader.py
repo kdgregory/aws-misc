@@ -88,7 +88,7 @@ def read_log_messages(log_group_name, log_stream_name):
     """
     events = []
     request = {
-        'logGroupIdentifier': log_group_name,
+        'logGroupName': log_group_name,
         'logStreamName': log_stream_name,
         'startTime': 0,
         'startFromHead': True
