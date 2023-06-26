@@ -444,6 +444,14 @@ group   by trim(user_name)
 order   by count(*) desc;
 ```
 
+## Benchmarking
+
+Disable query cache:
+
+```
+SET enable_result_cache_for_session TO false;
+```
+
 ## Environment Setup
 
 Standard Postgres environment variables. Fill in with connection info.
