@@ -1,0 +1,9 @@
+# this contains internal configuration, downloaded modules
+.terraform/
+
+# these potentially contain secrets, and should never be checked into source control
+terraform.tfstate
+terraform.tfstate.backup
+
+# this should be checked into source control for a production deployment, maybe not for sandbox
+# .terraform.lock.hcl
