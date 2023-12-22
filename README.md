@@ -27,6 +27,15 @@ Isolated pieces of code or configuration, intended to be pasted elsewhere.
 * [Redshift queries](snippets/redshift.md)
 
 
+## Python
+
+Python modules that can be incorporated into larger programs. Each has a README that shows example usage.
+
+Module                                                  | Description
+--------------------------------------------------------|----------
+[kinesis](python/kinesis)                               | Classes and functions for working with Kinesis
+
+
 ## Lambda
 
 Complete Lambda implementations and code intended to be used with Lambdas. Mostly in Python.
