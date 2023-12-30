@@ -9,7 +9,5 @@ stream, as well as acting as a base for new transformations.
 
 * `json_transform` ensures that the output file consists of single-line JSON text
   records, separated by newlines. Source records that are GZipped are uncompressed,
-  and any source records that cannot be parsed are dropped and logged.
-
-These Lambdas are also intended to provide boilerplate for arbitrary Firehose transforms,
-by changing just the `transform()` function.
+  those that can't be parsed are reported, and there's a hook that lets you drop
+  records based on their contents.

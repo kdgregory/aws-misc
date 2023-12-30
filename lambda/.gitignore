@@ -1,2 +1,4 @@
 .aws-sam/
+.venv/
+__pycache__/
 packaged.yaml

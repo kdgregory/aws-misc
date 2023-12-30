@@ -16,8 +16,9 @@
 
 """ Kinesis Firehose Transformation Lambda.
 
-    This Lambda appends a newline to the end of the source records if one isn't
-    already there, stripping a \r\n or \r if those terminate the string.
+    This Lambda appends a newline to the end of the source records, first strippng
+    any \n or \r characters from the end of the string. Leaves all other whitespace
+    in place.
     """
 
 import base64
@@ -26,7 +27,7 @@ import logging
 
 
 LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.INFO)
+LOGGER.setLevel(logging.DEBUG)
 
 
 def lambda_handler(event, context):
@@ -38,37 +39,24 @@ def lambda_handler(event, context):
     
     
 def process(rec):
-    """ Handle a single record, passing it to transform() and returning the 
-        expected dict. Marks the record as Dropped if transform() returns
-        None, ProcessingFailed if it throws.
+    """ Handles a single record. Transformation errors result in ProcessingFailed.
+        Errors retrieving or decoding request cause function to abort, as those
+        indicate a problem with Firehose.
         """
     record_id = rec['recordId']
+    data = base64.b64decode(rec['data'])
     try:
-        data = base64.b64decode(rec['data'])
-        transformed = transform(data)
-        if transformed:
-            return {
-                'recordId': record_id,
-                'result': 'Ok',
-                'data': str(base64.b64encode(transformed), "utf-8")
-            } 
-        else:
-            return {
-                'recordId': record_id,
-                'result': 'Dropped'
-            }
-    except Exception as ex:
-        LOGGER.warn(f"exception processing record", exc_info=True)
+        while data.endswith(b'\n') or data.endswith(b'\r'):
+            data = data[:-1]
+        data += b'\n'
         return {
             'recordId': record_id,
-            'result': 'ProcessingFailed'
+            'result': 'Ok',
+            'data': base64.b64encode(data).decode()
         }
-
-    
-def transform(data:bytes):
-    """ Strips trailing \n and \r, and appends a single \n.
-        """
-    while data.endswith(b'\n') or data.endswith(b'\r'):
-        data = data[:-1]
-    data += b'\n'
-    return data
+    except Exception as ex:
+        return {
+            'recordId': record_id,
+            'result': 'ProcessingFailed',
+            'data': base64.b64encode(data).decode()
+        }
