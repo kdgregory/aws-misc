@@ -6,7 +6,7 @@ import uuid
 
 from unittest.mock import Mock, ANY
 
-from kinesis_writer import KinesisWriter
+from kinesis import KinesisWriter
 
 ###
 ### Mocks and helpers

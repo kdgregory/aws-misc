@@ -23,7 +23,6 @@ Isolated pieces of code or configuration, intended to be pasted elsewhere.
 
 * [AWS CLI](snippets/cli.md)
 * [IAM Roles/Policies](snippets/iam.md)
-* [Python functions](snippets/python.md)
 * [Redshift queries](snippets/redshift.md)
 
 
@@ -31,9 +30,10 @@ Isolated pieces of code or configuration, intended to be pasted elsewhere.
 
 Python modules that can be incorporated into larger programs. Each has a README that shows example usage.
 
-Module                                                  | Description
---------------------------------------------------------|----------
-[kinesis](python/kinesis)                               | Classes and functions for working with Kinesis
+Module                                                      | Description
+------------------------------------------------------------|------------
+[aws_util.create_client()](python/aws_util#create_client)   | Creates a service client, optionally assuming a role to do so.
+[kinesis.KinesisWriter](python/kinesis)                     | Writes messages to a Kinesis stream, properly handling retries.
 
 
 ## Lambda
