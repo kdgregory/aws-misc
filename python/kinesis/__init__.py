@@ -13,3 +13,4 @@
 # limitations under the License.
 
 from .kinesis_writer import KinesisWriter
+from .kinesis_reader import KinesisReader
