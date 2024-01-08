@@ -2,14 +2,16 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 3.40.0"
+      version = ">= 4.0.0"
     }
   }
 }
 
 
+data "aws_region" "current" {}
+
+
 locals {
-  aws_account_id              = data.aws_caller_identity.current.account_id
   aws_region                  = data.aws_region.current.name
 
   has_dlq                     = var.retry_count != null
@@ -46,10 +48,6 @@ locals {
                                   ]
                                 }
 }
-
-
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 
 resource "aws_sqs_queue" "primary" {
