@@ -134,19 +134,41 @@ configuration.
 
   Default: null
 
-* `tags`
+* `policy_statements`
 
-  A map of name-value pairs that will be associated with the Lambda and all other
-  resources created by this script as tags. See below for special handling of the
-  [marker security group](#marker_security_group).
+  A list of policy statements that are attached to an inline policy in the Lambda's
+  execution role. This is intended to simplify permisions configuration.
 
-  Default: null
+  Example:
+
+  ```
+  policy_statements = [
+                        {
+                          Sid       = "ReadFromSource",
+                          Effect    = "Allow",
+                          Action    = [
+                                        "s3:DeleteObject",
+                                        "s3:GetObject",
+                                      ],
+                          Resource  = "${aws_s3_bucket.upload.arn}/*"
+                        }
+                      ]
+  ```
+  
 
 * `log_retention`
 
   The number of days that the CloudWatch log group associated with this Lambda will
   retain messages. If not specified, messages are retained indefinitely. If specified,
   the value must be in an allowed set of values, [as defined by the API](https://docs.aws.amazon.com/AmazonCloudWatchLogs/latest/APIReference/API_PutRetentionPolicy.html#CWL-PutRetentionPolicy-request-retentionInDays).
+
+  Default: null
+
+* `tags`
+
+  A map of name-value pairs that will be associated with the Lambda and all other
+  resources created by this script as tags. See below for special handling of the
+  [marker security group](#marker_security_group).
 
   Default: null
 

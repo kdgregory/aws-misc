@@ -102,3 +102,9 @@ variable "log_retention" {
   type        = number
   default     = 30
 }
+
+variable "policy_statements" {
+  description = "An optional list of items to add to the Lambda's inline policy"
+  type        = list
+  default     = []
+}

@@ -2,14 +2,16 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = ">= 3.40.0"
+      version = ">= 4.0.0"
     }
   }
 }
 
 
+data "aws_region" "current" {}
+
+
 locals {
-  aws_account_id              = data.aws_caller_identity.current.account_id
   aws_region                  = data.aws_region.current.name
 
   file_hash                   = (var.filename != null) ? filebase64sha256(var.filename) : null
@@ -20,10 +22,6 @@ locals {
 
   has_environment             = (length(var.env) > 0) ? toset(["1"]) : toset([])
 }
-
-
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 
 resource "aws_lambda_function" "lambda" {
@@ -65,12 +63,12 @@ resource "aws_iam_role" "execution_role" {
   path = "/lambda/"
 
   assume_role_policy = jsonencode({
-    "Version": "2012-10-17",
-    "Statement": [{
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Principal": { "Service": "lambda.amazonaws.com" }
-    }]
+    Version         = "2012-10-17",
+    Statement       = [{
+                        Effect        = "Allow",
+                        Action        = "sts:AssumeRole",
+                        Principal     = { "Service": "lambda.amazonaws.com" }
+                      }]
   })
 
   tags = var.tags
@@ -78,11 +76,11 @@ resource "aws_iam_role" "execution_role" {
 
 
 resource "aws_iam_role_policy" "logging_policy" {
-  name    = "Logging"
-  role    = aws_iam_role.execution_role.id
+  name        = "LoggingPermissions"
+  role        = aws_iam_role.execution_role.id
 
-  policy  = jsonencode({
-    Version = "2012-10-17"
+  policy      = jsonencode({
+    Version   = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
@@ -102,13 +100,13 @@ resource "aws_iam_role_policy" "logging_policy" {
 
 
 resource "aws_iam_role_policy" "vpc_policy" {
-  for_each  = local.deploy_in_vpc
+  for_each    = local.deploy_in_vpc
 
-  name      = "VPC_Attachment"
-  role      = aws_iam_role.execution_role.id
+  name        = "VPCPermissions"
+  role        = aws_iam_role.execution_role.id
 
-  policy    = jsonencode({
-    Version = "2012-10-17"
+  policy      = jsonencode({
+    Version   = "2012-10-17"
     Statement = [
       {
         Effect   = "Allow"
@@ -126,11 +124,22 @@ resource "aws_iam_role_policy" "vpc_policy" {
 }
 
 
+resource "aws_iam_role_policy" "operational_policy" {
+  name    = "OperationPermissions"
+  role    = aws_iam_role.execution_role.id
+
+  policy  = jsonencode({
+    Version = "2012-10-17"
+    Statement = var.policy_statements
+  })
+}
+
+
 resource "aws_security_group" "marker" {
   for_each            = local.deploy_in_vpc
 
   name                = var.name
-  description         = "Marker security group assigned to Lambda"
+  description         = "Marker security group assigned to Lambda ${var.name}"
   vpc_id              = var.vpc_id
 
   egress {
