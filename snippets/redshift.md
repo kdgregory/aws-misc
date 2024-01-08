@@ -57,7 +57,32 @@ order by schema_name, table_name;
 ```
 
 
-## External Schema Lookups
+## List table constraints and their columns
+
+This only shows the columns used in the base table.
+
+
+```
+SELECT  tc.table_schema, 
+        tc.table_name, 
+        tc.constraint_type, 
+        tc.constraint_name, 
+        kcu.column_name
+FROM    information_schema.table_constraints AS tc 
+JOIN    information_schema.key_column_usage AS kcu
+        ON kcu.table_schema = tc.table_schema
+        AND kcu.table_name = tc.table_name
+        AND kcu.constraint_name = tc.constraint_name
+ORDER   BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position;
+```
+
+For foreign key constraints, show the referenced table/column.
+
+```
+```
+
+
+## External Schema
 
 Tables by name:
 
@@ -392,6 +417,33 @@ left join RAW_UTILITY_TEXT t on t.xid = q.xid
 where   q.query = X
 order   by t.starttime;
 ```
+
+## DDL Operations
+
+Query 1: find all transactions that referenced a particular object in the past day
+
+```
+select  starttime, userid, xid, substring(text, 1, 120)
+from    STL_DDLTEXT
+where   starttime > sysdate - 1
+and     text like '%XXX%'
+order   by starttime;
+```
+
+Query 2: retrieve complete DDL statements by transaction ID
+
+This is best run using `\x`.
+
+```
+select  xid,
+        starttime,
+        trim(listagg(trim(text)) within group (order by sequence))
+from    STL_DDLTEXT
+where   xid in (6689794, 6690665)
+group   by xid, starttime
+```
+
+
 
 ## In-flight queries
 
