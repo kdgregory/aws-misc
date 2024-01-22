@@ -43,14 +43,23 @@ class Record:
 
 class KinesisReader:
 
-    def __init__(self, client, stream, starting_at="LATEST", log_actions=False):
+    def __init__(self, client, stream, from_trim_horizon=False, from_offsets=None, log_actions=False):
         """ Initializes a new reader. This will call Kinesis to get information
             about the shards in the stream, and will throw if unable to do so
             (for example, if the stream doesn't exist).
 
-            client          The Kinesis client.
-            stream          The name or ARN of the Kinesis stream to read.
-            starting_at     "LATEST" or "TRIM_HORIZON"
+            By default, this reader will start at the end of the stream, and read
+            only records that have been added after its creation. The various "from"
+            parameters modify this behavior; you can only specify one such parameter
+            when creating the reader.
+
+            client              The Kinesis client.
+            stream              The name or ARN of the Kinesis stream to read.
+            from_trim_horizon   If True, the reader will start reading from the beginning
+                                of the stream.
+            from_offsets        If provided, this is a dict of shard ID to sequence number,
+                                as returned by get_offsets(). The reader will start reading
+                                from the record AFTER the provided sequence number.
             log_actions     
             """
         self._client = client
@@ -62,10 +71,12 @@ class KinesisReader:
             self._stream_name = stream
             self._stream_param = { "StreamName": stream }
         self._log_actions = log_actions
-        self._shards = self._retrieve_shards(starting_at)
-        self._current_shard_idx = 0
-        self._current_shard = None
+        self._retrieve_shards(from_trim_horizon, from_offsets)
 
+
+    # TODO - return a tuple of the record (if any) and max millis-behind-latest
+    #        from all shards read (this will handle the case if some shards are
+    #        fully read and some aren't)
 
     def read(self):
         """ Returns the next available record, None if there are none available
@@ -85,20 +96,29 @@ class KinesisReader:
                 return rec
 
 
-    def _retrieve_shards(self, starting_at):
+    def shard_offsets(self):
+        """ Returns a dict containing the sequence number for the most recently
+            read record in each shard (key is shard ID). 
+            """
+        return [{s.shard_id: s.last_sequence_number} for s in self._shards]
+
+
+    def _retrieve_shards(self, from_trim_horizon, from_offsets):
         """ Retrieves the stream's shards from Kinesis.
             """
-        result = []
+        self._shards = []
+        self._current_shard_idx = 0
+        self._current_shard = None
         args = dict(self._stream_param)
         while True:
             resp = self._client.list_shards(**args)
-            # TODO - handle hierarchy
             for shard in resp['Shards']:
-                result.append(Shard(self._client, self._stream_param, shard['ShardId'], starting_at))
+                # TODO - only retain top level of hierarchy
+                self._shards.append(Shard(self._client, self._stream_param, shard['ShardId'], from_trim_horizon, from_offsets))
             if resp.get('NextToken'):
                 args['NextToken'] = resp.get('NextToken')
             else:
-                return result
+                return
 
 
     def _shards_to_read(self):
@@ -114,11 +134,19 @@ class Shard:
     """ An internal helper class that encapsulates all shard functionality.
         """
 
-    def __init__(self, client, stream_param, shard_id, iterator_type):
+    def __init__(self, client, stream_param, shard_id, from_trim_horizon=None, from_offsets=None):
+        self.shard_id = shard_id
+        self.last_sequence_number = None
         self._client = client
-        self._shard_id = shard_id
-        self._stream_param = stream_param
-        self._iterator_type = iterator_type
+        self._shard_iterator_args = dict(stream_param)
+        self._shard_iterator_args['ShardId'] = shard_id
+        if from_offsets:
+            self._shard_iterator_args['ShardIteratorType'] = 'AFTER_SEQUENCE_NUMBER'
+            self._shard_iterator_args['StartingSequenceNumber'] = from_offsets[shard_id]
+        elif from_trim_horizon:
+            self._shard_iterator_args['ShardIteratorType'] = 'TRIM_HORIZON'
+        else:
+            self._shard_iterator_args['ShardIteratorType'] = 'LATEST'
         self._current_shard_iterator = None
         self._current_records = []
         self._millis_behind_latest = None
@@ -130,8 +158,8 @@ class Shard:
         if not self._current_records:
             return None
         result = Record(self._current_records[0], self._millis_behind_latest)
+        self.last_sequence_number = result.sequence_number
         self._current_records = self._current_records[1:]
-        # TODO - retain current record's sequence number
         return result
 
 
@@ -141,18 +169,11 @@ class Shard:
         return not not self._current_records == []
 
 
-    def _retrieve_shard_iterator(self):
-        # TODO - deal with different iterator types
-        # TODO - stream param will turn into StreamARN, can create dict as literal
-        args = dict(self._stream_param, ShardId=self._shard_id, ShardIteratorType=self._iterator_type)
-        resp = self._client.get_shard_iterator(**args)
-        self._current_shard_iterator = resp['ShardIterator']
-
-
     def _retrieve_records(self):
         # TODO - handle shard iterator expiration
         if not self._current_shard_iterator:
-            self._retrieve_shard_iterator()
+            resp = self._client.get_shard_iterator(**self._shard_iterator_args)
+            self._current_shard_iterator = resp['ShardIterator']
         resp = self._client.get_records(ShardIterator=self._current_shard_iterator)
         self._current_records = resp['Records']
         self._current_shard_iterator = resp['NextShardIterator']
