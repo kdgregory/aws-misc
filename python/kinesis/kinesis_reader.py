@@ -74,9 +74,7 @@ class KinesisReader:
         self._retrieve_shards(from_trim_horizon, from_offsets)
 
 
-    # TODO - return a tuple of the record (if any) and max millis-behind-latest
-    #        from all shards read (this will handle the case if some shards are
-    #        fully read and some aren't)
+    # TODO - max millis should be a separate method
 
     def read(self):
         """ Returns the next available record, None if there are none available
@@ -170,11 +168,25 @@ class Shard:
 
 
     def _retrieve_records(self):
-        # TODO - handle shard iterator expiration
         if not self._current_shard_iterator:
-            resp = self._client.get_shard_iterator(**self._shard_iterator_args)
-            self._current_shard_iterator = resp['ShardIterator']
-        resp = self._client.get_records(ShardIterator=self._current_shard_iterator)
-        self._current_records = resp['Records']
-        self._current_shard_iterator = resp['NextShardIterator']
-        self._millis_behind_latest = resp['MillisBehindLatest']
+            self._retrieve_shard_iterator()
+        try:
+            resp = self._client.get_records(ShardIterator=self._current_shard_iterator)
+            self._current_records = resp['Records']
+            self._current_shard_iterator = resp['NextShardIterator']
+            self._millis_behind_latest = resp['MillisBehindLatest']
+        except Exception as ex:
+            if "ExpiredIteratorException" in str(ex):
+                self._current_records = []
+                self._current_shard_iterator = None
+            else:
+                raise
+
+
+    def _retrieve_shard_iterator(self):
+        if self.last_sequence_number:
+            # indicates that we've already read something, so need to restart from there
+            self._shard_iterator_args['ShardIteratorType'] = 'AFTER_SEQUENCE_NUMBER'
+            self._shard_iterator_args['StartingSequenceNumber'] = self.last_sequence_number
+        resp = self._client.get_shard_iterator(**self._shard_iterator_args)
+        self._current_shard_iterator = resp['ShardIterator']
