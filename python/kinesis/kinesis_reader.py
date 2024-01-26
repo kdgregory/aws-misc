@@ -19,26 +19,14 @@ import logging
 import re
 import time
 
+from collections import namedtuple
+
 
 logger = logging.getLogger("KinesisReader")
 logger.setLevel(logging.DEBUG)
 
 
-class Record:
-    """ A helper that holds retrieved messages. This contains all of the
-        individual record fields returned by get_records(), along with the
-        "millis behind latest" value for the shard. The data field is
-        converted to binary, and uncompressed if it was originally GZipped.
-        """
-
-    # TODO - consider replacing with a namedtuple
-
-    def __init__(self, src_record, millis_behind_latest):
-        self.sequence_number = src_record['SequenceNumber']
-        self.arrival_timestamp = src_record['ApproximateArrivalTimestamp']
-        self.millis_behind_latest = millis_behind_latest
-        self.partition_key = src_record['PartitionKey']
-        self.data = src_record['Data'] # FIXME - convert this and uncompress if necessary
+KinesisRecord = namedtuple('KinesisRecord', ['sequence_number', 'arrival_timestamp', 'partition_key', 'data'])
 
 
 class KinesisReader:
@@ -155,7 +143,7 @@ class Shard:
             self._retrieve_records()
         if not self._current_records:
             return None
-        result = Record(self._current_records[0], self._millis_behind_latest)
+        result = self._transform_rec(self._current_records[0])
         self.last_sequence_number = result.sequence_number
         self._current_records = self._current_records[1:]
         return result
@@ -190,3 +178,10 @@ class Shard:
             self._shard_iterator_args['StartingSequenceNumber'] = self.last_sequence_number
         resp = self._client.get_shard_iterator(**self._shard_iterator_args)
         self._current_shard_iterator = resp['ShardIterator']
+
+
+
+    @staticmethod
+    def _transform_rec(src_rec):
+        # TODO - uncompress data if necessary
+        return KinesisRecord(src_rec['SequenceNumber'], src_rec['ApproximateArrivalTimestamp'], src_rec['PartitionKey'], src_rec['Data'])
