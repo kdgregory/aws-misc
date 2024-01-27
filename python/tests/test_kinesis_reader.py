@@ -136,11 +136,14 @@ def test_single_shard_basic_operation():
             ]
         })
     reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
+    assert reader.millis_behind_latest() == None
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
     assert_returned_record(reader.read(), 1, "part1", b"message 2")
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
     assert reader.read() == None
-    assert reader.shard_offsets() == [ { expected_shard_id: mock_sequence_number(2) } ]
+    assert reader.millis_behind_latest() == 0
+    assert reader.millis_behind_latest(by_shard=True) == { expected_shard_id: 0 }
+    assert reader.shard_offsets() == { expected_shard_id: mock_sequence_number(2) }
     mock_client.list_shards.assert_called_once_with(
         StreamName="example")
     mock_client.get_shard_iterator.assert_called_once_with(
@@ -168,7 +171,8 @@ def test_single_shard_from_offsets():
     reader = KinesisReader(mock_client, "example", from_offsets=offsets)
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
     assert reader.read() == None
-    assert reader.shard_offsets() == [ { expected_shard_id: mock_sequence_number(2) } ]
+    assert reader.millis_behind_latest() == 0
+    assert reader.shard_offsets() == { expected_shard_id: mock_sequence_number(2) }
     mock_client.list_shards.assert_called_once_with(
         StreamName="example")
     mock_client.get_shard_iterator.assert_called_once_with(
@@ -195,9 +199,13 @@ def test_single_shard_repeated_reads():
         )
     reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
+    assert reader.millis_behind_latest() == 1500
     assert_returned_record(reader.read(), 1, "part1", b"message 2")
+    assert reader.millis_behind_latest() == 1000
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
+    assert reader.millis_behind_latest() == 500
     assert reader.read() == None
+    assert reader.millis_behind_latest() == 0
     mock_client.list_shards.assert_called_once_with(
         StreamName="example")
     mock_client.get_shard_iterator.assert_has_calls([
@@ -231,6 +239,7 @@ def test_expired_shard_iterator(monkeypatch):
     reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
     # we'll have one successful read
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
+    assert reader.millis_behind_latest() == 1500
     # then simulate an expired iterator
     with monkeypatch.context() as mp:
         mp.setattr(mock_client.get_records, 'side_effect', alt_get_records)
@@ -239,6 +248,7 @@ def test_expired_shard_iterator(monkeypatch):
     assert_returned_record(reader.read(), 1, "part1", b"message 2")
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
     assert reader.read() == None
+    assert reader.millis_behind_latest() == 0
     mock_client.list_shards.assert_called_once_with(
         StreamName="example")
     mock_client.get_shard_iterator.assert_has_calls([
