@@ -62,8 +62,6 @@ class KinesisReader:
         self._retrieve_shards(from_trim_horizon, from_offsets)
 
 
-    # TODO - max millis should be a separate method
-
     def read(self):
         """ Returns the next available record, None if there are none available
             after examining all shards.
@@ -86,7 +84,24 @@ class KinesisReader:
         """ Returns a dict containing the sequence number for the most recently
             read record in each shard (key is shard ID). 
             """
-        return [{s.shard_id: s.last_sequence_number} for s in self._shards]
+        return dict([(s.shard_id, s.last_sequence_number) for s in self._shards])
+
+    
+    def millis_behind_latest(self, by_shard=False):
+        """ By default, returns the maximum millis-behind value from all shards.
+            If the by_shard parameter is True, returns a map containing the value
+            for each shard.
+            """
+        if by_shard:
+            return dict([(s.shard_id, s.millis_behind_latest) for s in self._shards])
+        else:
+            max_behind = 0
+            for s in self._shards:
+                if s.millis_behind_latest is None:
+                    # we can't give an answer until all shards have been checked
+                    return None
+                max_behind = max(max_behind, s.millis_behind_latest)
+            return max_behind
 
 
     def _retrieve_shards(self, from_trim_horizon, from_offsets):
@@ -123,6 +138,7 @@ class Shard:
     def __init__(self, client, stream_param, shard_id, from_trim_horizon=None, from_offsets=None):
         self.shard_id = shard_id
         self.last_sequence_number = None
+        self.millis_behind_latest = None
         self._client = client
         self._shard_iterator_args = dict(stream_param)
         self._shard_iterator_args['ShardId'] = shard_id
@@ -135,7 +151,6 @@ class Shard:
             self._shard_iterator_args['ShardIteratorType'] = 'LATEST'
         self._current_shard_iterator = None
         self._current_records = []
-        self._millis_behind_latest = None
 
 
     def read(self):
@@ -162,7 +177,7 @@ class Shard:
             resp = self._client.get_records(ShardIterator=self._current_shard_iterator)
             self._current_records = resp['Records']
             self._current_shard_iterator = resp['NextShardIterator']
-            self._millis_behind_latest = resp['MillisBehindLatest']
+            self.millis_behind_latest = resp['MillisBehindLatest']
         except Exception as ex:
             if "ExpiredIteratorException" in str(ex):
                 self._current_records = []
