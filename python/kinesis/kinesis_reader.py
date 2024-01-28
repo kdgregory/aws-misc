@@ -32,14 +32,15 @@ KinesisRecord = namedtuple('KinesisRecord', ['sequence_number', 'arrival_timesta
 class KinesisReader:
 
     def __init__(self, client, stream, from_trim_horizon=False, from_offsets=None, log_actions=False):
-        """ Initializes a new reader. This will call Kinesis to get information
-            about the shards in the stream, and will throw if unable to do so
-            (for example, if the stream doesn't exist).
+        """ Initializes a new reader. 
 
-            By default, this reader will start at the end of the stream, and read
-            only records that have been added after its creation. The various "from"
-            parameters modify this behavior; you can only specify one such parameter
-            when creating the reader.
+            By default, this reader starts at the end of the stream, and read only
+            records that have been added after its creation. The various "from"
+            parameters modify this behavior; you can only specify one such parameter.
+
+            During initialization, the reader makes calls to AWS to retrieve information
+            about the stream. These will throw any AWS-reported errors, or for a stream
+            that is currently being deleted.
 
             client              The Kinesis client.
             stream              The name or ARN of the Kinesis stream to read.
@@ -51,14 +52,8 @@ class KinesisReader:
             log_actions     
             """
         self._client = client
-        # TODO - get stream description, only store ARN
-        if stream.startswith("arn:"):
-            self._stream_name = re.sub(r".*:", "", stream)
-            self._stream_param = { "StreamARN": stream }
-        else:
-            self._stream_name = stream
-            self._stream_param = { "StreamName": stream }
         self._log_actions = log_actions
+        self._verify_stream(stream)
         self._retrieve_shards(from_trim_horizon, from_offsets)
 
 
@@ -104,18 +99,27 @@ class KinesisReader:
             return max_behind
 
 
+    def _verify_stream(self, name_or_arn):
+        if name_or_arn.startswith("arn:"):
+            resp = self._client.describe_stream_summary(StreamARN=name_or_arn)
+        else:
+            resp = self._client.describe_stream_summary(StreamName=name_or_arn)
+        desc = resp['StreamDescriptionSummary']
+        self._stream_arn = desc['StreamARN']
+        self._stream_name = desc['StreamName']
+        # TODO - if status is DELETING, throw
+
+
     def _retrieve_shards(self, from_trim_horizon, from_offsets):
-        """ Retrieves the stream's shards from Kinesis.
-            """
         self._shards = []
         self._current_shard_idx = 0
         self._current_shard = None
-        args = dict(self._stream_param)
+        args = { "StreamARN": self._stream_arn }
         while True:
             resp = self._client.list_shards(**args)
             for shard in resp['Shards']:
                 # TODO - only retain top level of hierarchy
-                self._shards.append(Shard(self._client, self._stream_param, shard['ShardId'], from_trim_horizon, from_offsets))
+                self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard['ShardId'], from_trim_horizon, from_offsets))
             if resp.get('NextToken'):
                 args['NextToken'] = resp.get('NextToken')
             else:
@@ -135,13 +139,17 @@ class Shard:
     """ An internal helper class that encapsulates all shard functionality.
         """
 
-    def __init__(self, client, stream_param, shard_id, from_trim_horizon=None, from_offsets=None):
+    def __init__(self, client, stream_name, stream_arn, shard_id, from_trim_horizon=None, from_offsets=None):
+        self.stream_name = stream_name
+        self.stream_arn = stream_arn
         self.shard_id = shard_id
         self.last_sequence_number = None
         self.millis_behind_latest = None
         self._client = client
-        self._shard_iterator_args = dict(stream_param)
-        self._shard_iterator_args['ShardId'] = shard_id
+        self._shard_iterator_args = {
+            'StreamARN': stream_arn,
+            'ShardId': shard_id
+        }
         if from_offsets:
             self._shard_iterator_args['ShardIteratorType'] = 'AFTER_SEQUENCE_NUMBER'
             self._shard_iterator_args['StartingSequenceNumber'] = from_offsets[shard_id]
