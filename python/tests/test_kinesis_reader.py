@@ -17,6 +17,9 @@ from kinesis import KinesisReader
 ### complex that we need a dedicated class to provide side-effects.
 ###
 
+TEST_STREAM_NAME = "example"
+TEST_STREAM_ARN  = f"arn:aws:kinesis:us-east-1:123456789012:stream/{TEST_STREAM_NAME}"
+
 def mock_shard_id(idx):
     return f"shard-{idx:03d}"
 
@@ -57,7 +60,19 @@ class MockImpl:
         self._current_idx = 0
         self._read_limit = read_limit
 
-    def list_shards(self, StreamName=None, StreamArn=None):
+
+    def describe_stream_summary(self, StreamName=None, StreamArn=None):
+        # we only return the things that we use
+        return {
+            'StreamDescriptionSummary': {
+                'StreamName': TEST_STREAM_NAME,
+                'StreamARN': TEST_STREAM_ARN,
+                'StreamStatus': 'ACTIVE',
+            }
+        }
+
+
+    def list_shards(self, StreamName=None, StreamARN=None):
         # we only return the things that we use
         return {
             'Shards': [
@@ -66,6 +81,7 @@ class MockImpl:
                 },
             ],
         }
+
 
     def get_records(self, ShardIterator):
         records = []
@@ -108,10 +124,11 @@ class MockImpl:
 
 def create_mock_client(shards, read_limit=999):
     impl = MockImpl(shards, read_limit)
-    mock = Mock(spec=["get_records", "get_shard_iterator", "list_shards"])
+    mock = Mock(spec=["describe_stream_summary", "list_shards", "get_shard_iterator", "get_records"])
+    mock.describe_stream_summary.side_effect = lambda **args: impl.describe_stream_summary(**args)
     mock.list_shards.side_effect = lambda **args: impl.list_shards(**args)
-    mock.get_records.side_effect = lambda **args: impl.get_records(**args)
     mock.get_shard_iterator.side_effect = lambda **args: impl.get_shard_iterator(**args)
+    mock.get_records.side_effect = lambda **args: impl.get_records(**args)
     return mock
 
 
@@ -135,7 +152,7 @@ def test_single_shard_basic_operation():
             MockRecord(  500, "part2", "message 3" ),
             ]
         })
-    reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True)
     assert reader.millis_behind_latest() == None
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
     assert_returned_record(reader.read(), 1, "part1", b"message 2")
@@ -144,10 +161,12 @@ def test_single_shard_basic_operation():
     assert reader.millis_behind_latest() == 0
     assert reader.millis_behind_latest(by_shard=True) == { expected_shard_id: 0 }
     assert reader.shard_offsets() == { expected_shard_id: mock_sequence_number(2) }
+    mock_client.describe_stream_summary.assert_called_once_with(
+        StreamName=TEST_STREAM_NAME)
     mock_client.list_shards.assert_called_once_with(
-        StreamName="example")
+        StreamARN=TEST_STREAM_ARN)
     mock_client.get_shard_iterator.assert_called_once_with(
-        StreamName="example",
+        StreamARN=TEST_STREAM_ARN,
         ShardId=expected_shard_id,
         ShardIteratorType="TRIM_HORIZON")
     mock_client.get_records.assert_has_calls([
@@ -168,15 +187,17 @@ def test_single_shard_from_offsets():
     offsets = {
         expected_shard_id: mock_sequence_number(1)
     }
-    reader = KinesisReader(mock_client, "example", from_offsets=offsets)
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_offsets=offsets)
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
     assert reader.read() == None
     assert reader.millis_behind_latest() == 0
     assert reader.shard_offsets() == { expected_shard_id: mock_sequence_number(2) }
+    mock_client.describe_stream_summary.assert_called_once_with(
+        StreamName=TEST_STREAM_NAME)
     mock_client.list_shards.assert_called_once_with(
-        StreamName="example")
+        StreamARN=TEST_STREAM_ARN)
     mock_client.get_shard_iterator.assert_called_once_with(
-        StreamName="example",
+        StreamARN=TEST_STREAM_ARN,
         ShardId=expected_shard_id,
         ShardIteratorType="AFTER_SEQUENCE_NUMBER",
         StartingSequenceNumber=mock_sequence_number(1))
@@ -197,7 +218,7 @@ def test_single_shard_repeated_reads():
         },
         read_limit = 1
         )
-    reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True)
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
     assert reader.millis_behind_latest() == 1500
     assert_returned_record(reader.read(), 1, "part1", b"message 2")
@@ -206,11 +227,13 @@ def test_single_shard_repeated_reads():
     assert reader.millis_behind_latest() == 500
     assert reader.read() == None
     assert reader.millis_behind_latest() == 0
+    mock_client.describe_stream_summary.assert_called_once_with(
+        StreamName=TEST_STREAM_NAME)
     mock_client.list_shards.assert_called_once_with(
-        StreamName="example")
+        StreamARN=TEST_STREAM_ARN)
     mock_client.get_shard_iterator.assert_has_calls([
         # for this test the reader will reuse the shard iterator to retrieve more records
-        call(StreamName="example", ShardId=expected_shard_id, ShardIteratorType="TRIM_HORIZON"),
+        call(StreamARN=TEST_STREAM_ARN, ShardId=expected_shard_id, ShardIteratorType="TRIM_HORIZON"),
         ])
     mock_client.get_records.assert_has_calls([
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 0)),
@@ -236,7 +259,7 @@ def test_expired_shard_iterator(monkeypatch):
         # must use read limit so that we're not just reading cached records
         read_limit = 1
         )
-    reader = KinesisReader(mock_client, "example", from_trim_horizon=True)
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True)
     # we'll have one successful read
     assert_returned_record(reader.read(), 0, "part1", b"message 1")
     assert reader.millis_behind_latest() == 1500
@@ -249,11 +272,13 @@ def test_expired_shard_iterator(monkeypatch):
     assert_returned_record(reader.read(), 2, "part2", b"message 3")
     assert reader.read() == None
     assert reader.millis_behind_latest() == 0
+    mock_client.describe_stream_summary.assert_called_once_with(
+        StreamName=TEST_STREAM_NAME)
     mock_client.list_shards.assert_called_once_with(
-        StreamName="example")
+        StreamARN=TEST_STREAM_ARN)
     mock_client.get_shard_iterator.assert_has_calls([
-        call(StreamName="example", ShardId=expected_shard_id, ShardIteratorType="TRIM_HORIZON"),
-        call(StreamName="example", ShardId=expected_shard_id, ShardIteratorType="AFTER_SEQUENCE_NUMBER", StartingSequenceNumber=mock_sequence_number(0)),
+        call(StreamARN=TEST_STREAM_ARN, ShardId=expected_shard_id, ShardIteratorType="TRIM_HORIZON"),
+        call(StreamARN=TEST_STREAM_ARN, ShardId=expected_shard_id, ShardIteratorType="AFTER_SEQUENCE_NUMBER", StartingSequenceNumber=mock_sequence_number(0)),
         ])
     mock_client.get_records.assert_has_calls([
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 0)),
