@@ -51,13 +51,14 @@ class MockRecord:
 
 class MockImpl:
 
-    def __init__(self, shards, read_limit):
+    def __init__(self, shards, stream_status, read_limit):
         # at this point in development there should only be a single shard
         # but we're given a dict, so hack out the value
         for k,v in shards.items():
             self._shard_id = k
             self._records = v
         self._current_idx = 0
+        self._stream_status = stream_status
         self._read_limit = read_limit
 
 
@@ -67,7 +68,7 @@ class MockImpl:
             'StreamDescriptionSummary': {
                 'StreamName': TEST_STREAM_NAME,
                 'StreamARN': TEST_STREAM_ARN,
-                'StreamStatus': 'ACTIVE',
+                'StreamStatus': self._stream_status,
             }
         }
 
@@ -122,8 +123,8 @@ class MockImpl:
         }
 
 
-def create_mock_client(shards, read_limit=999):
-    impl = MockImpl(shards, read_limit)
+def create_mock_client(shards, stream_status="ACTIVE", read_limit=999):
+    impl = MockImpl(shards, stream_status, read_limit)
     mock = Mock(spec=["describe_stream_summary", "list_shards", "get_shard_iterator", "get_records"])
     mock.describe_stream_summary.side_effect = lambda **args: impl.describe_stream_summary(**args)
     mock.list_shards.side_effect = lambda **args: impl.list_shards(**args)
@@ -287,3 +288,15 @@ def test_expired_shard_iterator(monkeypatch):
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 2)),
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 3)),
         ])
+
+
+def test_stream_being_deleted():
+    expected_shard_id = mock_shard_id(0)
+    mock_client = create_mock_client(shards={
+        "irrelevant": []
+        },
+        stream_status="DELETING")
+    with pytest.raises(Exception) as exc:
+        reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True)
+    assert f"stream {TEST_STREAM_NAME} is not active" in str(exc)
+    assert f"DELETING" in str(exc)

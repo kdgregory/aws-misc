@@ -105,9 +105,10 @@ class KinesisReader:
         else:
             resp = self._client.describe_stream_summary(StreamName=name_or_arn)
         desc = resp['StreamDescriptionSummary']
+        if desc['StreamStatus'] != "ACTIVE":
+            raise Exception(f"stream {name_or_arn} is not active ({desc['StreamStatus']})")
         self._stream_arn = desc['StreamARN']
         self._stream_name = desc['StreamName']
-        # TODO - if status is DELETING, throw
 
 
     def _retrieve_shards(self, from_trim_horizon, from_offsets):
