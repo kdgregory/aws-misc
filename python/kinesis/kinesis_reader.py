@@ -100,6 +100,8 @@ class KinesisReader:
 
 
     def _verify_stream(self, name_or_arn):
+        if self._log_actions:
+            logger.debug(f"verifying stream {name_or_arn}")
         if name_or_arn.startswith("arn:"):
             resp = self._client.describe_stream_summary(StreamARN=name_or_arn)
         else:
@@ -112,6 +114,8 @@ class KinesisReader:
 
 
     def _retrieve_shards(self, from_trim_horizon, from_offsets):
+        if self._log_actions:
+            logger.debug(f"retrieving shards for {self._stream_arn}")
         self._shards = []
         self._current_shard_idx = 0
         self._current_shard = None
@@ -120,7 +124,7 @@ class KinesisReader:
             resp = self._client.list_shards(**args)
             for shard in resp['Shards']:
                 # TODO - only retain top level of hierarchy
-                self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard['ShardId'], from_trim_horizon, from_offsets))
+                self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard['ShardId'], from_trim_horizon, from_offsets, self._log_actions))
             if resp.get('NextToken'):
                 args['NextToken'] = resp.get('NextToken')
             else:
@@ -140,13 +144,14 @@ class Shard:
     """ An internal helper class that encapsulates all shard functionality.
         """
 
-    def __init__(self, client, stream_name, stream_arn, shard_id, from_trim_horizon=None, from_offsets=None):
+    def __init__(self, client, stream_name, stream_arn, shard_id, from_trim_horizon, from_offsets, log_actions):
         self.stream_name = stream_name
         self.stream_arn = stream_arn
         self.shard_id = shard_id
         self.last_sequence_number = None
         self.millis_behind_latest = None
         self._client = client
+        self._log_actions = log_actions
         self._shard_iterator_args = {
             'StreamARN': stream_arn,
             'ShardId': shard_id
@@ -183,10 +188,14 @@ class Shard:
         if not self._current_shard_iterator:
             self._retrieve_shard_iterator()
         try:
+            if self._log_actions:
+                logger.debug(f"retrieving records from {self.stream_arn}")
             resp = self._client.get_records(ShardIterator=self._current_shard_iterator)
             self._current_records = resp['Records']
             self._current_shard_iterator = resp['NextShardIterator']
             self.millis_behind_latest = resp['MillisBehindLatest']
+            if self._log_actions:
+                logger.debug(f"retrieved {len(self._current_records)} records from {self.stream_arn}")
         except Exception as ex:
             if "ExpiredIteratorException" in str(ex):
                 self._current_records = []
@@ -200,6 +209,11 @@ class Shard:
             # indicates that we've already read something, so need to restart from there
             self._shard_iterator_args['ShardIteratorType'] = 'AFTER_SEQUENCE_NUMBER'
             self._shard_iterator_args['StartingSequenceNumber'] = self.last_sequence_number
+        if self._log_actions:
+            logger.debug(f"retrieving shard iterator for {self.stream_arn}: " \
+                         f"shard {self.shard_id}, " \
+                         f"iterator type {self._shard_iterator_args['ShardIteratorType']}, " \
+                         f"sequence number {self._shard_iterator_args.get('StartingSequenceNumber')}")
         resp = self._client.get_shard_iterator(**self._shard_iterator_args)
         self._current_shard_iterator = resp['ShardIterator']
 
