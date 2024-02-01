@@ -144,7 +144,7 @@ def assert_returned_record(rec, sequence_idx, partition_key, data):
 ### Test cases
 ###
 
-def test_single_shard_basic_operation():
+def test_single_shard_basic_operation(caplog):
     expected_shard_id = mock_shard_id(0)
     mock_client = create_mock_client(shards={
         expected_shard_id: [
@@ -174,6 +174,48 @@ def test_single_shard_basic_operation():
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 0)),
         call(ShardIterator=mock_shard_iterator(expected_shard_id, 3)),
         ])
+    assert len(caplog.records) == 0
+
+
+def test_single_shard_basic_operation_with_logging(caplog):
+    expected_shard_id = mock_shard_id(0)
+    mock_client = create_mock_client(shards={
+        expected_shard_id: [
+            MockRecord( 1500, "part1", "message 1" ),
+            MockRecord( 1000, "part1", "message 2" ),
+            MockRecord(  500, "part2", "message 3" ),
+            ]
+        })
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True, log_actions=True)
+    assert reader.millis_behind_latest() == None
+    assert_returned_record(reader.read(), 0, "part1", b"message 1")
+    assert_returned_record(reader.read(), 1, "part1", b"message 2")
+    assert_returned_record(reader.read(), 2, "part2", b"message 3")
+    assert reader.read() == None
+    assert reader.millis_behind_latest() == 0
+    assert reader.millis_behind_latest(by_shard=True) == { expected_shard_id: 0 }
+    assert reader.shard_offsets() == { expected_shard_id: mock_sequence_number(2) }
+    mock_client.describe_stream_summary.assert_called_once_with(
+        StreamName=TEST_STREAM_NAME)
+    mock_client.list_shards.assert_called_once_with(
+        StreamARN=TEST_STREAM_ARN)
+    mock_client.get_shard_iterator.assert_called_once_with(
+        StreamARN=TEST_STREAM_ARN,
+        ShardId=expected_shard_id,
+        ShardIteratorType="TRIM_HORIZON")
+    mock_client.get_records.assert_has_calls([
+        call(ShardIterator=mock_shard_iterator(expected_shard_id, 0)),
+        call(ShardIterator=mock_shard_iterator(expected_shard_id, 3)),
+        ])
+    assert len(caplog.records) == 7
+    assert caplog.records[0].msg == f"verifying stream {TEST_STREAM_NAME}"
+    assert caplog.records[1].msg == f"retrieving shards for {TEST_STREAM_ARN}"
+    assert caplog.records[2].msg == f"retrieving shard iterator for {TEST_STREAM_ARN}: shard {expected_shard_id}, " \
+                                    f"iterator type TRIM_HORIZON, sequence number None"
+    assert caplog.records[3].msg == f"retrieving records from {TEST_STREAM_ARN}"
+    assert caplog.records[4].msg == f"retrieved 3 records from {TEST_STREAM_ARN}"
+    assert caplog.records[5].msg == f"retrieving records from {TEST_STREAM_ARN}"
+    assert caplog.records[6].msg == f"retrieved 0 records from {TEST_STREAM_ARN}"
 
 
 def test_single_shard_from_offsets():
