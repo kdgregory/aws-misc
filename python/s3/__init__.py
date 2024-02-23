@@ -31,7 +31,7 @@ def list_keys(client, bucket, prefix=None):
     while True:
         print(f"calling list_objects: {args}")
         resp = client.list_objects_v2(**args)
-        for rec in resp['Contents']:
+        for rec in resp.get('Contents', []):
             yield rec['Key']
         if resp.get('IsTruncated'):
             args['ContinuationToken'] = resp['NextContinuationToken']
@@ -64,9 +64,9 @@ def list_children(client, bucket, prefix="", delimiter="/"):
     while True:
         print(f"calling list_objects: {args}")
         resp = client.list_objects_v2(**args)
-        for rec in resp['Contents']:
+        for rec in resp.get('Contents', []):
             yield rec['Key'][len(prefix):]
-        for rec in resp['CommonPrefixes']:
+        for rec in resp.get('CommonPrefixes', []):
             yield rec['Prefix'][len(prefix):]
         if resp.get('IsTruncated'):
             args['ContinuationToken'] = resp['NextContinuationToken']

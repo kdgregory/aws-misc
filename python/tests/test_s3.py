@@ -84,6 +84,11 @@ class MockImpl:
         else:
             result['Contents'] = [ {'Key': key } for key in keys]
             result['CommonPrefixes'] = []
+        # S3 only provides the child elements that have data; easier to delete after the fact
+        if not result['Contents']:
+            del result['Contents']
+        if not result['CommonPrefixes']:
+            del result['CommonPrefixes']
         if next_token:
             result['IsTruncated'] = True
             result['NextContinuationToken'] = next_token
