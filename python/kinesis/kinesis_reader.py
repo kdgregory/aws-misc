@@ -135,7 +135,11 @@ class KinesisReader:
         """ Generates a list of shard indexes that will allow us to iterate
             all shards once.
             """
-        next_idx = self._current_shard_idx + 1
+        if self._current_shard:
+            next_idx = self._current_shard_idx + 1
+        else:
+            # this only happens for the first read
+            next_idx = 0
         last_idx = self._current_shard_idx + len(self._shards) + 1
         return [idx % len(self._shards) for idx in range(next_idx, last_idx)]
 
@@ -167,6 +171,10 @@ class Shard:
         self._current_records = []
 
 
+    def __str__(self):
+        return self.shard_id
+
+
     def read(self):
         if not self._current_records:
             self._retrieve_records()
@@ -181,7 +189,7 @@ class Shard:
     def has_records(self):
         """ Returns True if there are currently records in-memory for this shard.
             """
-        return not not self._current_records == []
+        return len(self._current_records) > 0
 
 
     def _retrieve_records(self):
