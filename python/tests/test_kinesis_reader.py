@@ -28,16 +28,24 @@ def mock_sequence_number(shard_id, offset):
     return f"{shard_id}-{offset:06d}"
 
 
-def mock_shard_iterator(shard_id, offset):
-    return f"{shard_id}-{offset:06d}"
-
-
-def decompose_mock_shard_iterator(s):
+def decompose_mock_sequence_number(s):
     m = re.match(r"(.+)-(\d+)", s)
     if m:
         return m.group(1), int(m.group(2))
     else:
-        raise Exception("did not match")
+        raise Exception("invalid sequence number")
+
+
+def mock_shard_iterator(shard_id, offset):
+    return f"{shard_id}-itx-{offset:06d}"
+
+
+def decompose_mock_shard_iterator(s):
+    m = re.match(r"(.+)-itx-(\d+)", s)
+    if m:
+        return m.group(1), int(m.group(2))
+    else:
+        raise Exception("invalid shard iterator")
 
 
 class MockRecord:
@@ -89,7 +97,7 @@ class MockShard:
         elif ShardIteratorType == "TRIM_HORIZON":
             return mock_shard_iterator(self._id, 0)
         elif ShardIteratorType == "AFTER_SEQUENCE_NUMBER":
-            _, prev_idx = decompose_mock_shard_iterator(StartingSequenceNumber)
+            _, prev_idx = decompose_mock_sequence_number(StartingSequenceNumber)
             next_idx = min(prev_idx + 1, len(self._records))
             return mock_shard_iterator(self._id, next_idx)
         else:
