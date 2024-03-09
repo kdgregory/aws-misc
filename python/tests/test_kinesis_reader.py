@@ -87,6 +87,14 @@ class MockShard:
         return self._millis_behind
 
 
+    def starting_sequence_number(self):
+        return mock_sequence_number(self._id, 0)
+
+
+    def ending_sequence_number(self):
+        return mock_sequence_number(self._id, len(self._records) - 1)
+        
+
     def next_shard_iterator(self):
         return mock_shard_iterator(self._id, self._current_position)
 
@@ -110,6 +118,11 @@ class MockClientImpl:
         self._shards = dict([[k, MockShard(k,v)] for k,v in shards.items()])
         self._stream_status = stream_status
         self._read_limit = read_limit
+        self._parent_child_relations = shard_relations or {}
+        self._child_parent_relations = {}
+        for parent_id, children in self._parent_child_relations.items():
+            for child_id in children:
+                self._child_parent_relations[child_id] = parent_id
 
 
     def describe_stream_summary(self, StreamName=None, StreamArn=None):
@@ -124,9 +137,20 @@ class MockClientImpl:
 
 
     def list_shards(self, StreamName=None, StreamARN=None):
-        # again, only the things that we use
+        result = []
+        for shard_id, shard in self._shards.items():
+            item = {
+                'ShardId' : shard_id,
+                'SequenceNumberRange': { 'StartingSequenceNumber': shard.starting_sequence_number() }
+            }
+            if shard_id in self._parent_child_relations:
+                item['SequenceNumberRange']['EndingSequenceNumber'] = shard.ending_sequence_number()
+            if shard_id in self._child_parent_relations:
+                item['ParentShardId'] = self._child_parent_relations[shard_id]
+            result.append(item)
+        print(result)
         return {
-            'Shards': [{'ShardId' : shard_id} for shard_id in self._shards.keys()]
+            'Shards': result
         }
 
 
@@ -474,3 +498,65 @@ def test_multiple_shards_basic_operation(caplog):
         call(ShardIterator=mock_shard_iterator(shard_1_id, 4)),
         ])
     assert len(caplog.records) == 0
+
+
+def test_one_two_split_trim_horizon(caplog):
+    shard_0_id = mock_shard_id(0)
+    shard_1_id = mock_shard_id(1)
+    shard_2_id = mock_shard_id(2)
+    mock_client = create_mock_client(
+        shards={
+            shard_0_id: [
+                MockRecord( 6500, "part1", "shard 0 message 1" ),
+                MockRecord( 5500, "part1", "shard 0 message 2" ),
+                MockRecord( 4500, "part2", "shard 0 message 3" ),
+                ],
+            shard_1_id: [
+                MockRecord( 2000, "part3", "shard 1 message 1" ),
+                MockRecord( 1000, "part3", "shard 1 message 2" ),
+                MockRecord(  500, "part3", "shard 1 message 3" ),
+                ],
+            shard_2_id: [
+                MockRecord( 2000, "part4", "shard 2 message 1" ),
+                MockRecord( 1000, "part4", "shard 2 message 2" ),
+                MockRecord(  500, "part4", "shard 2 message 3" ),
+                ],
+            },
+        shard_relations={
+            shard_0_id: [ shard_1_id, shard_2_id ]
+        })
+    reader = KinesisReader(mock_client, TEST_STREAM_NAME, from_trim_horizon=True)
+    assert_returned_record(reader.read(), shard_0_id, 0, "part1", b"shard 0 message 1")
+    assert_returned_record(reader.read(), shard_0_id, 1, "part1", b"shard 0 message 2")
+    assert_returned_record(reader.read(), shard_0_id, 2, "part2", b"shard 0 message 3")
+    # at this point we should only know about one shard
+    assert reader.shard_offsets() == { shard_0_id: mock_sequence_number(shard_0_id, 2) }
+    assert_returned_record(reader.read(), shard_1_id, 0, "part3", b"shard 1 message 1")
+#    assert_returned_record(reader.read(), shard_1_id, 1, "part4", b"shard 1 message 2")
+#    assert_returned_record(reader.read(), shard_1_id, 2, "part4", b"shard 1 message 3")
+#    assert_returned_record(reader.read(), shard_1_id, 3, "part4", b"shard 1 message 4")
+#    assert reader.read() == None
+#    assert reader.millis_behind_latest() == 500
+#    assert reader.millis_behind_latest(by_shard=True) == { shard_0_id: 500, shard_1_id: 0 }
+#    assert reader.shard_offsets() == { shard_0_id: mock_sequence_number(shard_0_id, 2), shard_1_id: mock_sequence_number(shard_1_id, 3) }
+#    mock_client.describe_stream_summary.assert_called_once_with(
+#        StreamName=TEST_STREAM_NAME)
+#    mock_client.list_shards.assert_called_once_with(
+#        StreamARN=TEST_STREAM_ARN)
+#    mock_client.get_shard_iterator.assert_has_calls([
+#        call(StreamARN=TEST_STREAM_ARN,
+#             ShardId=shard_0_id,
+#             ShardIteratorType="TRIM_HORIZON"),
+#        call(StreamARN=TEST_STREAM_ARN,
+#             ShardId=shard_1_id,
+#             ShardIteratorType="TRIM_HORIZON")
+#        ])
+#    mock_client.get_records.assert_has_calls([
+#        call(ShardIterator=mock_shard_iterator(shard_0_id, 0)),
+#        call(ShardIterator=mock_shard_iterator(shard_1_id, 0)),
+#        call(ShardIterator=mock_shard_iterator(shard_0_id, 2)),
+#        call(ShardIterator=mock_shard_iterator(shard_1_id, 2)),
+#        call(ShardIterator=mock_shard_iterator(shard_0_id, 3)),
+#        call(ShardIterator=mock_shard_iterator(shard_1_id, 4)),
+#        ])
+#    assert len(caplog.records) == 0

@@ -123,7 +123,9 @@ class KinesisReader:
         while True:
             resp = self._client.list_shards(**args)
             for shard in resp['Shards']:
-                # TODO - only retain top level of hierarchy
+                # TODO - only retain the part of the hierarchy that we care about
+                if from_trim_horizon and shard.get('ParentShardId'):
+                    continue
                 self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard['ShardId'], from_trim_horizon, from_offsets, self._log_actions))
             if resp.get('NextToken'):
                 args['NextToken'] = resp.get('NextToken')
