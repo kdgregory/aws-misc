@@ -53,8 +53,11 @@ class KinesisReader:
             """
         self._client = client
         self._log_actions = log_actions
+        self._shards = []
+        self._current_shard_idx = 0
+        self._current_shard = None
         self._verify_stream(stream)
-        self._retrieve_shards(from_trim_horizon, from_offsets)
+        self._retrieve_shards(from_trim_horizon, from_offsets, None)
 
 
     def read(self):
@@ -73,7 +76,6 @@ class KinesisReader:
             rec = self._current_shard.read()
             if rec:
                 return rec
-
 
     def shard_offsets(self):
         """ Returns a dict containing the sequence number for the most recently
@@ -113,20 +115,20 @@ class KinesisReader:
         self._stream_name = desc['StreamName']
 
 
-    def _retrieve_shards(self, from_trim_horizon, from_offsets):
+    def _retrieve_shards(self, from_trim_horizon, from_offsets, specific_shards):
         if self._log_actions:
             logger.debug(f"retrieving shards for {self._stream_arn}")
-        self._shards = []
-        self._current_shard_idx = 0
-        self._current_shard = None
         args = { "StreamARN": self._stream_arn }
         while True:
             resp = self._client.list_shards(**args)
             for shard in resp['Shards']:
-                # TODO - only retain the part of the hierarchy that we care about
-                if from_trim_horizon and shard.get('ParentShardId'):
+                shard_id = shard['ShardId']
+                if specific_shards and shard_id not in specific_shards:
                     continue
-                self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard['ShardId'], from_trim_horizon, from_offsets, self._log_actions))
+                elif not specific_shards and from_trim_horizon and shard.get('ParentShardId'):
+                    continue
+                # TODO - handle LATEST
+                self._shards.append(Shard(self._client, self._stream_name, self._stream_arn, shard_id, from_trim_horizon, from_offsets, self._log_actions))
             if resp.get('NextToken'):
                 args['NextToken'] = resp.get('NextToken')
             else:
@@ -194,6 +196,13 @@ class Shard:
         return len(self._current_records) > 0
 
 
+    def children(self):
+        """ If this shard has children, returns their IDs. This only happens when
+            the stream has been resharded and the current shard has been fully read.
+            """
+        return self._child_shards
+
+
     def _retrieve_records(self):
         if not self._current_shard_iterator:
             self._retrieve_shard_iterator()
@@ -206,6 +215,8 @@ class Shard:
             self.millis_behind_latest = resp['MillisBehindLatest']
             if self._log_actions:
                 logger.debug(f"retrieved {len(self._current_records)} records from {self.stream_arn}")
+            if resp.get('ChildShards'):
+                self._child_shards = [shard['ShardId'] for shard in resp.get('ChildShards')]
         except Exception as ex:
             if "ExpiredIteratorException" in str(ex):
                 self._current_records = []
