@@ -70,6 +70,8 @@ class KinesisReader:
             """
         if self._current_shard and self._current_shard.has_records():
             return self._current_shard.read()
+        if self._current_shard.children():
+            self._replace_current_shard_with_children()
         for idx in self._shards_to_read():
             self._current_shard_idx = idx
             self._current_shard = self._shards[idx]
@@ -134,6 +136,13 @@ class KinesisReader:
             else:
                 return
 
+
+    def _replace_current_shard_with_children(self):
+        """ This is called when we reach the end of a parent shard. It retrieves the
+            child shards, adds them to the end of the list of active shards, and
+            removes the parent shard from that list.
+            """
+        pass
 
     def _shards_to_read(self):
         """ Generates a list of shard indexes that will allow us to iterate
