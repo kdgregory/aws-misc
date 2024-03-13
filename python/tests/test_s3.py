@@ -108,9 +108,15 @@ class MockImpl:
             return values[start:finish], str(finish)
 
 
+    def delete_objects(self,Bucket,Delete):
+        to_delete = set([obj['Key'] for obj in Delete.get('Objects', [])])
+        self._keys = [key for key in self._keys if not key in to_delete]
+
+
 def create_mock_client(keys=None, objects=None, max_items=99999):
     impl = MockImpl(keys=keys, objects=objects, max_items=max_items)
-    mock = Mock(spec=["get_object", "list_objects_v2"])
+    mock = Mock(spec=["delete_objects", "get_object", "list_objects_v2"])
+    mock.delete_objects.side_effect = lambda *args, **kwargs: impl.delete_objects(*args, **kwargs)
     mock.get_object.side_effect = lambda *args, **kwargs: impl.get_object(*args, **kwargs)
     mock.list_objects_v2.side_effect = lambda *args, **kwargs: impl.list_objects_v2(*args, **kwargs)
     return mock
@@ -266,4 +272,17 @@ def test_get_object_nodecode_string():
     get_object_body_mock.__exit__.assert_called()
     client.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
+    ])
+
+
+def test_delete_prefix_basic_operation():
+    keys = [ "argle", "argle/bargle", "foo", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
+    client = create_mock_client(keys=keys)
+    s3.delete_prefix(client, TEST_BUCKET, "foo/")
+    assert list(s3.list_keys(client, TEST_BUCKET)) == ["argle", "argle/bargle", "foo" ]
+    client.list_objects_v2.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Prefix="foo/"),
+    ])
+    client.delete_objects.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Delete=ANY),
     ])

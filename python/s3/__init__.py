@@ -95,3 +95,29 @@ def get_object_data(client, bucket, key, decompress=False, encoding=None):
         if encoding:
             data = data.decode(encoding=encoding)
         return data
+
+
+def delete_prefix(client, bucket, prefix):
+    """ Deletes all unversioned objects that have the given prefix.
+
+        client      - The Boto3 S3 client
+        bucket      - The name of the bucket
+        prefix      - Prefix for the keys to delete.
+        """
+    list_req = {
+        'Bucket': bucket,
+        'Prefix': prefix,
+    }
+    while True:
+        list_resp = client.list_objects_v2(**list_req)
+        keys_to_delete = [obj['Key'] for obj in list_resp.get('Contents', [])]
+        if keys_to_delete:
+            delete_resp = client.delete_objects(
+                Bucket=bucket,
+                Delete={'Objects': [{'Key': key} for key in keys_to_delete]}
+            )
+            # TODO - capture any keys that weren't deleted
+        if list_resp.get('IsTruncated'):
+            list_req['ContinuationToken'] = list_resp['NextContinuationToken']
+        else:
+            return
