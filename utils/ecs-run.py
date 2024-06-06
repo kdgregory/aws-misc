@@ -131,7 +131,7 @@ def validate_cluster(cluster):
         """
     if cluster is None:
         return None
-    clusters = boto3.client('ecs').describe_clusters(clusters=["Default"])['clusters']
+    clusters = boto3.client('ecs').describe_clusters(clusters=[cluster])['clusters']
     if len(clusters) != 1:
         exit_if_none(None, f"invalid cluster: {cluster}")
     return clusters[0]['clusterArn']
