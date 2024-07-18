@@ -92,6 +92,13 @@ def parse_args(argv):
                             dest='taskdef_version',
                             help="""The version of the task definition; defaults to the latest version.
                                     """)
+    arg_parser.add_argument("--command",
+                            metavar="COMMA_SEPARATED_LIST",
+                            dest='command',
+                            help="""Command override; embedded quotes allowed, but they will not allow
+                                    embedded commas. Note that variable expansion is _not_ performed on
+                                    the command at runtime.
+                                    """)
     arg_parser.add_argument('taskdef',
                             metavar="TASK_DEFINITION_NAME",
                             help="""The name of the task definition
@@ -102,6 +109,10 @@ def parse_args(argv):
                             help="""Environment variable overrides for the task. May be specified as
                                     KEY=VALUE or CONTAINER:KEY=VALUE. Former applies to all containers
                                     in the task definition, latter to a specific container.
+
+                                    Warning: provide container-specific overrides after generic overrides
+                                    of the same variable. They're managed as a dict internally, and later
+                                    overrides will replace earlier.
                                     """)
     args = arg_parser.parse_args(argv)
     args.cluster = args.cluster or os.environ.get("ECS_CLUSTER")
@@ -218,14 +229,10 @@ def retrieve_container_names(taskdef_name):
     return containers
 
 
-def apply_environment_overrides(container_names, envar_specs):
-    """ Applies environment variable overrides to the passed list
-        of containers. Returns a dict, keyed by container name,
-        where each item in the dict has name-value pairs for the
-        environment overrides that apply to that container.
-        """
+def _build_envar_lookup(taskdef_name, envar_specs):
     matcher = re.compile(r"(([-\w]+):)*(\w+)=(.*)", re.ASCII)
-    overrides_by_container = dict([[k,dict()] for k in container_names])
+    container_names = retrieve_container_names(taskdef_name)
+    result = dict([[k,dict()] for k in container_names])
     for spec in envar_specs:
         match = matcher.match(spec)
         exit_if_none(match, f"invalid environment override: {spec}")
@@ -233,30 +240,32 @@ def apply_environment_overrides(container_names, envar_specs):
         env_name = match.group(3)
         env_value = match.group(4)
         if container_name:
-            container_override = overrides_by_container.get(container_name)
+            container_override = result.get(container_name)
             exit_if_none(container_override, f"invalid container for override: {container_name}")
             container_override[env_name] = env_value
         else:
-            for container_override in overrides_by_container.values():
+            for container_override in result.values():
                 container_override[env_name] = env_value
-    return overrides_by_container
+    return result
 
 
-def construct_container_overrides(taskdef_name, envar_specs):
-    container_names = retrieve_container_names(taskdef_name)
-    env_overrides = apply_environment_overrides(container_names, envar_specs)
+def construct_container_overrides(taskdef_name, envar_specs, command_override):
     result = []
-    for container_name in container_names:
+    envar_lookup = _build_envar_lookup(taskdef_name, envar_specs)
+    for container_name in envar_lookup.keys():
         container_env = []
-        for k,v in env_overrides.get(container_name, {}).items():
+        for k,v in envar_lookup.get(container_name, {}).items():
             container_env.append({
                 "name": k,
                 "value": v
             })
-        result.append({
+        override = {
             "name": container_name,
             "environment": container_env
-        })
+        }
+        if command_override:
+            override['command'] = command_override.split(",")
+        result.append(override)
     return result
 
 
@@ -277,7 +286,7 @@ if __name__ == "__main__":
             }
         },
         'overrides': {
-            'containerOverrides': construct_container_overrides(args.taskdef, args.envars),
+            'containerOverrides': construct_container_overrides(args.taskdef, args.envars, args.command),
         }
     }
 
