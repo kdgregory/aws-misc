@@ -179,7 +179,7 @@ if __name__ == "__main__":
         if len(sys.argv) < 2:
             print(__doc__)
             sys.exit(1)
-        if re.match("^\d{6}$", sys.argv[2]):
+        if re.match(r"^\d{6}$", sys.argv[2]):
             kwargs['mfaCode'] = sys.argv[2]
             command = sys.argv[3:]
         else:
