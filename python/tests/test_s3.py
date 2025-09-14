@@ -1,4 +1,4 @@
-# Copyright 2024, Keith D Gregory
+# Copyright 2024-2025, Keith D Gregory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -32,15 +32,20 @@ import s3
 
 TEST_BUCKET = "example"
 
-# this is how we assert that the StreamingBody was closed
-get_object_body_mock = None
+get_object_body_mock = None     # TODO - move this into the class, because we now inject an instance
 
 class MockImpl:
 
-    def __init__(self, keys, objects, max_items):
-        self._keys = keys
+    def __init__(self):
+        pass
+
+
+    def configure(self, keys=None, objects=None, max_items=9999999, delete_failure_keys=None, delete_failure_reason=None):
+        self._keys = keys or []
+        self._objects = objects or {}
         self._max_items = max_items
-        self._objects = objects if objects else {}
+        self._delete_failure_keys = set(delete_failure_keys or [])
+        self._delete_failure_reason = delete_failure_reason
 
 
     def get_object(self, Bucket=None, Key=None):
@@ -56,6 +61,7 @@ class MockImpl:
 
 
     def list_objects_v2(self, Bucket=None, Prefix="", Delimiter=None, ContinuationToken=None):
+        print(f"list_objects_v2 called: Bucket: {Bucket}, Prefix: {Prefix}, Delimiter: {Delimiter}, ContinuationToken: {ContinuationToken}")
         if Prefix:
             keys = [ key for key in self._keys if key.startswith(Prefix) ]
             prefix_length = len(Prefix)
@@ -76,6 +82,7 @@ class MockImpl:
                 else:
                     filtered.append(key)
             keys = [ f"{Prefix}{key}" for key in filtered ]
+        print(f"keys: {keys}")
         keys, next_token = self._apply_continuation_token(keys, ContinuationToken)
         result = {}
         if Delimiter:
@@ -84,7 +91,7 @@ class MockImpl:
         else:
             result['Contents'] = [ {'Key': key } for key in keys]
             result['CommonPrefixes'] = []
-        # S3 only provides the child elements that have data; easier to delete after the fact
+        # S3 only provides the child elements that have data, so delete those that don't for this call
         if not result['Contents']:
             del result['Contents']
         if not result['CommonPrefixes']:
@@ -108,11 +115,33 @@ class MockImpl:
             return values[start:finish], str(finish)
 
 
-def create_mock_client(keys=None, objects=None, max_items=99999):
-    impl = MockImpl(keys=keys, objects=objects, max_items=max_items)
-    mock = Mock(spec=["get_object", "list_objects_v2"])
-    mock.get_object.side_effect = lambda *args, **kwargs: impl.get_object(*args, **kwargs)
-    mock.list_objects_v2.side_effect = lambda *args, **kwargs: impl.list_objects_v2(*args, **kwargs)
+    def delete_objects(self, Bucket, Delete):
+        to_delete = set([obj['Key'] for obj in Delete.get('Objects', [])])
+        deleted = []
+        errors = []
+        for key in to_delete:
+            if key in self._delete_failure_keys:
+                errors.append(key)
+            elif key in self._keys:
+                deleted.append(key)
+                self._keys.remove(key)
+        return {
+            "Deleted": [{"Key": key} for key in deleted],
+            "Errors": [{"Key": key, "Code": self._delete_failure_reason} for key in errors],
+        }
+
+
+@pytest.fixture
+def mock_impl():
+    return MockImpl()
+
+
+@pytest.fixture
+def mock(mock_impl):
+    mock = Mock(spec=["delete_objects", "get_object", "list_objects_v2"])
+    mock.delete_objects.side_effect = lambda *args, **kwargs: mock_impl.delete_objects(*args, **kwargs)
+    mock.get_object.side_effect = lambda *args, **kwargs: mock_impl.get_object(*args, **kwargs)
+    mock.list_objects_v2.side_effect = lambda *args, **kwargs: mock_impl.list_objects_v2(*args, **kwargs)
     return mock
 
 
@@ -120,150 +149,210 @@ def create_mock_client(keys=None, objects=None, max_items=99999):
 ### Test cases
 ###
 
-def test_list_keys_basic_operation():
+def test_list_keys_basic_operation(mock, mock_impl):
     expected_keys = [ "argle", "foo/bar", "foo/baz" ]
-    client = create_mock_client(keys=expected_keys)
-    keys = [key for key in s3.list_keys(client, TEST_BUCKET)]
+    mock_impl.configure(keys=expected_keys)
+    keys = [key for key in s3.list_keys(mock, TEST_BUCKET)]
     assert keys == expected_keys
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET),
     ])
 
 
-def test_list_keys_with_prefix():
+def test_list_keys_with_prefix(mock, mock_impl):
     all_keys = [ "argle", "foo/bar", "foo/baz" ]
     expected_keys = [ "foo/bar", "foo/baz" ]
-    client = create_mock_client(keys=all_keys)
-    keys = [key for key in s3.list_keys(client, TEST_BUCKET, "foo/")]
+    mock_impl.configure(keys=all_keys)
+    keys = [key for key in s3.list_keys(mock, TEST_BUCKET, "foo/")]
     assert keys == expected_keys
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET, Prefix="foo/"),
     ])
 
 
-def test_list_keys_pagination():
+def test_list_keys_pagination(mock, mock_impl):
     expected_keys = [ "argle", "foo/bar", "foo/baz" ]
-    client = create_mock_client(keys=expected_keys, max_items=2)
-    keys = [key for key in s3.list_keys(client, TEST_BUCKET)]
+    mock_impl.configure(keys=expected_keys, max_items=2)
+    keys = [key for key in s3.list_keys(mock, TEST_BUCKET)]
     assert keys == expected_keys
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET),
         call(Bucket=TEST_BUCKET, ContinuationToken="2")
     ])
 
 
-def test_list_keys_empty():
-    expected_keys = []
-    client = create_mock_client(keys=expected_keys)
-    keys = [key for key in s3.list_keys(client, TEST_BUCKET)]
+def test_list_keys_pagination_with_prefix(mock, mock_impl):
+    expected_keys = [ "argle", "foo/bar", "foo/baz" ]
+    mock_impl.configure(keys=expected_keys, max_items=1)
+    keys = [key for key in s3.list_keys(mock, TEST_BUCKET)]
     assert keys == expected_keys
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
+        call(Bucket=TEST_BUCKET),
+        call(Bucket=TEST_BUCKET, ContinuationToken="1"),
+        call(Bucket=TEST_BUCKET, ContinuationToken="2")
+    ])
+
+
+def test_list_keys_empty(mock, mock_impl):
+    expected_keys = []
+    mock_impl.configure(keys=expected_keys)
+    keys = [key for key in s3.list_keys(mock, TEST_BUCKET)]
+    assert keys == expected_keys
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET),
     ])
 
 
-def test_list_children_basic_operation():
+def test_list_children_basic_operation(mock, mock_impl):
     keys = [ "argle", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
     expected_result = [ "argle", "foo/" ]
-    client = create_mock_client(keys=keys)
-    result = [prefix for prefix in s3.list_children(client, TEST_BUCKET)]
+    mock_impl.configure(keys=keys)
+    result = [prefix for prefix in s3.list_children(mock, TEST_BUCKET)]
     assert result == expected_result
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET, Delimiter="/"),
     ])
 
 
-def test_list_children_with_prefix():
+def test_list_children_with_prefix(mock, mock_impl):
     keys = [ "argle", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
     expected_prefixes = [ "boffo", "bar/", "biff/" ]
-    client = create_mock_client(keys=keys)
-    prefixes = [prefix for prefix in s3.list_children(client, TEST_BUCKET, prefix="foo/")]
+    mock_impl.configure(keys=keys)
+    prefixes = [prefix for prefix in s3.list_children(mock, TEST_BUCKET, prefix="foo/")]
     assert prefixes == expected_prefixes
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET, Prefix="foo/", Delimiter="/"),
     ])
 
 
-def test_list_children_paginated():
+def test_list_children_paginated(mock, mock_impl):
     keys = [ "argle", "foo/bar/baz", "foo/biff/baz", "foo/boffo/baz" ]
     expected_prefixes = [ "bar/", "biff/", "boffo/" ]
-    client = create_mock_client(keys=keys, max_items=2)
-    prefixes = [prefix for prefix in s3.list_children(client, TEST_BUCKET, prefix="foo/")]
+    mock_impl.configure(keys=keys, max_items=2)
+    prefixes = [prefix for prefix in s3.list_children(mock, TEST_BUCKET, prefix="foo/")]
     assert prefixes == expected_prefixes
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET, Prefix="foo/", Delimiter="/"),
         call(Bucket=TEST_BUCKET, Prefix="foo/", Delimiter="/", ContinuationToken="2"),
     ])
 
 
-def test_list_children_empty():
+def test_list_children_empty(mock, mock_impl):
     keys = []
     expected_prefixes = []
-    client = create_mock_client(keys=keys)
-    prefixes = [prefix for prefix in s3.list_children(client, TEST_BUCKET)]
+    mock_impl.configure(keys=keys)
+    prefixes = [prefix for prefix in s3.list_children(mock, TEST_BUCKET)]
     assert prefixes == expected_prefixes
-    client.list_objects_v2.assert_has_calls([
+    mock.list_objects_v2.assert_has_calls([
         call(Bucket=TEST_BUCKET, Delimiter="/"),
     ])
 
 
-def test_get_object_basic_operation():
+def test_get_object_basic_operation(mock, mock_impl):
     global last_get_object_body
     test_key = "foo"
     test_data = b'this is something'
-    client = create_mock_client(objects={test_key: test_data})
-    assert s3.get_object_data(client, TEST_BUCKET, test_key) == test_data
+    mock_impl.configure(objects={test_key: test_data})
+    assert s3.get_object_data(mock, TEST_BUCKET, test_key) == test_data
     get_object_body_mock.__exit__.assert_called()
-    client.get_object.assert_has_calls([
+    mock.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
     ])
 
 
-def test_get_object_decompress():
+def test_get_object_decompress(mock, mock_impl):
     global last_get_object_body
     test_key = "foo"
     test_data = b'this is something'
-    client = create_mock_client(objects={test_key: gzip.compress(test_data)})
-    assert s3.get_object_data(client, TEST_BUCKET, test_key, decompress=True) == test_data
+    mock_impl.configure(objects={test_key: gzip.compress(test_data)})
+    assert s3.get_object_data(mock, TEST_BUCKET, test_key, decompress=True) == test_data
     get_object_body_mock.__exit__.assert_called()
-    client.get_object.assert_has_calls([
+    mock.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
     ])
 
 
-def test_get_object_nodecompress():
+def test_get_object_nodecompress(mock, mock_impl):
     global last_get_object_body
     test_key = "foo"
     test_data = b'this is something'
-    client = create_mock_client(objects={test_key: gzip.compress(test_data)})
-    assert s3.get_object_data(client, TEST_BUCKET, test_key) == gzip.compress(test_data)
+    mock_impl.configure(objects={test_key: gzip.compress(test_data)})
+    assert s3.get_object_data(mock, TEST_BUCKET, test_key) == gzip.compress(test_data)
     get_object_body_mock.__exit__.assert_called()
-    client.get_object.assert_has_calls([
+    mock.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
     ])
 
 
-def test_get_object_decode_string():
+def test_get_object_decode_string(mock, mock_impl):
     global last_get_object_body
     test_key = "foo"
     test_str = 'this is something'
     test_data = test_str.encode()
-    client = create_mock_client(objects={test_key: test_data})
-    assert s3.get_object_data(client, TEST_BUCKET, test_key, encoding='utf-8') == test_str
+    mock_impl.configure(objects={test_key: test_data})
+    assert s3.get_object_data(mock, TEST_BUCKET, test_key, encoding='utf-8') == test_str
     get_object_body_mock.__exit__.assert_called()
-    client.get_object.assert_has_calls([
+    mock.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
     ])
 
 
-def test_get_object_nodecode_string():
+def test_get_object_nodecode_string(mock, mock_impl):
     global last_get_object_body
     test_key = "foo"
     test_str = 'this is something'
     test_data = test_str.encode()
-    client = create_mock_client(objects={test_key: test_data})
-    assert s3.get_object_data(client, TEST_BUCKET, test_key) == test_data
+    mock_impl.configure(objects={test_key: test_data})
+    assert s3.get_object_data(mock, TEST_BUCKET, test_key) == test_data
     get_object_body_mock.__exit__.assert_called()
-    client.get_object.assert_has_calls([
+    mock.get_object.assert_has_calls([
         call(Bucket=TEST_BUCKET, Key=test_key),
+    ])
+
+
+def test_delete_prefix_basic_operation(mock, mock_impl):
+    print("test_delete_prefix_basic_operation")
+    keys = [ "argle", "argle/bargle", "foo", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
+    mock_impl.configure(keys=keys)
+    errors = s3.delete_prefix(mock, TEST_BUCKET, "foo/")
+    assert len(errors) == 0
+    assert list(s3.list_keys(mock, TEST_BUCKET)) == ["argle", "argle/bargle", "foo" ]
+    mock.list_objects_v2.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Prefix="foo/"),
+    ])
+    mock.delete_objects.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Delete=ANY),
+    ])
+
+
+def test_delete_prefix_multiple_calls(mock, mock_impl):
+    print("test_delete_prefix_multiple_calls")
+    keys = [ "argle", "argle/bargle", "foo", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
+    mock_impl.configure(keys=keys, max_items=2)
+    errors = s3.delete_prefix(mock, TEST_BUCKET, "foo/")
+    assert len(errors) == 0
+    assert list(s3.list_keys(mock, TEST_BUCKET)) == ["argle", "argle/bargle", "foo" ]
+    mock.list_objects_v2.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Prefix="foo/"),
+    ])
+    mock.delete_objects.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Delete=ANY),
+    ])
+
+
+def test_delete_prefix_with_errors(mock, mock_impl):
+    print("test_delete_prefix_with_errors")
+    keys = [ "argle", "argle/bargle", "foo", "foo/bar/baz", "foo/biff/baz", "foo/boffo" ]
+    delete_failure_keys = ["foo/biff/baz"]
+    delete_failure_reason = "testing"
+    mock_impl.configure(keys=keys, delete_failure_keys=delete_failure_keys, delete_failure_reason=delete_failure_reason)
+    errors = s3.delete_prefix(mock, TEST_BUCKET, "foo/")
+    assert len(errors) == 1
+    assert errors["foo/biff/baz"] == delete_failure_reason
+    assert list(s3.list_keys(mock, TEST_BUCKET)) == ["argle", "argle/bargle", "foo", "foo/biff/baz"]
+    mock.list_objects_v2.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Prefix="foo/"),
+    ])
+    mock.delete_objects.assert_has_calls([
+        call(Bucket=TEST_BUCKET, Delete=ANY),
     ])

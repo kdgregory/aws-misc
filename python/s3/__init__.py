@@ -29,7 +29,6 @@ def list_keys(client, bucket, prefix=None):
     if prefix:
         args['Prefix'] = prefix
     while True:
-        print(f"calling list_objects: {args}")
         resp = client.list_objects_v2(**args)
         for rec in resp.get('Contents', []):
             yield rec['Key']
@@ -62,7 +61,6 @@ def list_children(client, bucket, prefix="", delimiter="/"):
     if prefix:
         args['Prefix'] = prefix
     while True:
-        print(f"calling list_objects: {args}")
         resp = client.list_objects_v2(**args)
         for rec in resp.get('Contents', []):
             yield rec['Key'][len(prefix):]
@@ -95,3 +93,28 @@ def get_object_data(client, bucket, key, decompress=False, encoding=None):
         if encoding:
             data = data.decode(encoding=encoding)
         return data
+
+
+def delete_prefix(client, bucket, prefix):
+    """ Deletes all unversioned objects that have the given prefix.
+
+        Returns a dict of any errors, in which the key is the object key and
+        the value is the reported error.
+
+        client      - The Boto3 S3 client
+        bucket      - The name of the bucket
+        prefix      - Prefix for the keys to delete.
+        """
+    errors = {}
+    while True:
+        list_resp = client.list_objects_v2(Bucket=bucket, Prefix=prefix)
+        keys_to_delete = [obj['Key'] for obj in list_resp.get('Contents', [])]
+        if keys_to_delete:
+            delete_resp = client.delete_objects(
+                Bucket=bucket,
+                Delete={'Objects': [{'Key': key} for key in keys_to_delete]}
+            )
+            for error in delete_resp.get('Errors', []):
+                errors[error['Key']] = error['Code']
+        if not list_resp.get('IsTruncated'):
+            return errors
