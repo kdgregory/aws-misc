@@ -5,27 +5,6 @@ Utility functions that are not associated with a particular service.
 
 Creates a new AWS client using the default session, with various configuration options.
 
-```
-from aws_util import create_client
-
-# creates a basic client, just like boto3.client(...)
-logs_client = create_client("logs")
-
-# creates a client for a specific region
-logs_client = create_client("logs", region_name="us-west-2")
-
-# assumes a role in the current account
-logs_client = create_client("logs", role_name="Log4JAppenderTesting")
-
-# assumes a role in the specified account (if allowed)
-logs_client = create_client("logs", account="123456789012", role_name="Example")
-
-# assumes a role with the specified ARN, using a specified session identifier
-logs_client = create_client("logs", role_arn="arn:aws:iam::123456789012:role/Example", session_name="integration_test")
-```
-
-
-### Invocation
 
 ```
 def create_client(service, *, region_name=None, account=None, role_name=None, role_arn=None, session_name=None, policy=None, duration=None, log_actions=False):
@@ -66,6 +45,27 @@ def create_client(service, *, region_name=None, account=None, role_name=None, ro
 
 * `log_actions`
   If True, then this function will log everything that it tries to do (at debug level).
+
+### Examples
+
+```
+from aws_util import create_client
+
+# creates a basic client, just like boto3.client(...)
+logs_client = create_client("logs")
+
+# creates a client for a specific region
+logs_client = create_client("logs", region_name="us-west-2")
+
+# assumes a role in the current account
+logs_client = create_client("logs", role_name="Log4JAppenderTesting")
+
+# assumes a role in the specified account (if allowed)
+logs_client = create_client("logs", account="123456789012", role_name="Example")
+
+# assumes a role with the specified ARN, using a specified session identifier
+logs_client = create_client("logs", role_arn="arn:aws:iam::123456789012:role/Example", session_name="integration_test")
+```
 
 
 ### Caveats and Usage Notes

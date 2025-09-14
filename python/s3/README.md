@@ -1,9 +1,10 @@
 # S3
 
-This module provides utilities for performing common S3 tasks.
+This module provides utilities for performing common S3 tasks. All functions are exposed
+at the root of the module.
 
 
-## list_keys
+## list_keys()
 
 Generator function that returns one object key at a time, invoking the `ListObjectsV2` API
 as needed.
@@ -18,7 +19,7 @@ s3.list_keys(client, bucket, prefix=None)
   all keys in the bucket.
 
 
-## list_children
+## list_children()
 
 Generator function that returns the immediate child components of a given prefix, using the
 specified delimiter, and invoking the `ListObjectsV2` API as needed. This function s intended
@@ -39,7 +40,7 @@ s3.list_children(client, bucket, prefix="", delimiter="/"):
   you can use anything (eg, `#` or `.`).
 
 
-## get_object_data
+## get_object_data()
 
 Retrieves the contents of an object, closing the `StreamingBody`, and optionally decompressing
 or converting to a string. 
@@ -55,3 +56,22 @@ s3.get_object_data(client, bucket, key, decompress=False, encoding=None):
   returns the uncompressed data.
 * `encoding`: if provided, this function calls the `bytes.decode()` function with the
   object contents (uncompressed) and the specified encoding.
+
+
+## delete_prefix()
+
+Deletes all unversioned objects that have the given prefix.
+
+Returns a dict of any errors, in which the key is the object key and the value is the
+reported error.
+
+```
+def delete_prefix(client, bucket, prefix):
+```
+
+* `client`: a Boto3 `s3` client.
+* `bucket`: identifies the bucket.
+* `prefix`: prefix for the keys to delete.
+
+Note: S3 prefixes are the initial characters in the filename, _not_ a directory. The
+prefix "foo" applies equally to "foo.txt", "foo/bar.txt", and "foobar.txt".

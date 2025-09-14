@@ -5,40 +5,30 @@ Grab-bag of utilities and other stuff that I use with AWS. Easier to keep track 
 
 Each is documented in its header, and exposes functions that may be useful for other programs.
 
-To run you must have `boto3` installed.
+To run the Python apps, you must have `boto3` installed.
 
 Program                                                 | Description
 --------------------------------------------------------|----------
 [assume-role.py](utils/assume-role.py)                  | Spawns a subshell with authentication credentials for a specified role.
+[cf-deploy.py](utils/cf-deploy.py)                      | Creates/updates CloudFormation scripts, using an external store of common parameters
 [cf-env.py](utils/cf-env.py)                            | Populates environment variables from the parameters and outputs of a CloudFormation stack.
-[cf-runner.py](utils/cf-runner.py)                      | Creates/updates CloudFormation scripts, using an external store of common parameters
+[ecs-run.py](utils/ecs-run.py)                          | Runs an ECS task with various configuration.
 [kinesis_reader.py](utils/kinesis_reader.py)            | Reads from a Kinesis stream, writing output as JSON.
 [logs_reader.py](utils/logs_reader.py)                  | Reads from a CloudWatch Logs log group/stream, writing output as JSON.
 [sm-env.py](utils/sm-env.py)                            | Populates environment variables from a Secrets Manager secret.
+[terraform.sh](utils/terraform.sh)                      | Shell script to run Terraform in the current directory using a Docker container.
 
+## Docker
 
-## Snippets
-
-Isolated pieces of code or configuration, intended to be pasted elsewhere.
-
-* [AWS CLI](snippets/cli.md)
-* [IAM Roles/Policies](snippets/iam.md)
-* [Redshift queries](snippets/redshift.md)
-
-
-## Python
-
-Python modules that can be incorporated into larger programs. Each has a README that shows example usage.
-
-Module                                                      | Description
-------------------------------------------------------------|------------
-[aws_util.create_client()](python/aws_util#create_client)   | Creates a service client, optionally assuming a role to do so.
-[kinesis.KinesisWriter](python/kinesis)                     | Writes messages to a Kinesis stream, properly handling retries.
+Docker images for use with AWS.
+Directory                                               | Contents
+--------------------------------------------------------|----------
+[jupyter](docker/jupyter)                               | JupyterLab with boto3 preinstalled.
 
 
 ## Lambda
 
-Complete Lambda implementations and code intended to be used with Lambdas. Mostly in Python.
+Complete Lambda implementations, and code intended to be used with Lambdas. Mostly in Python.
 
 Directory                                                           | Contents
 --------------------------------------------------------------------|----------
@@ -47,6 +37,26 @@ Directory                                                           | Contents
 [elb-to-es](lambda/elb-to-es)                                       | Imports Elastic Load Balancer logfiles into Elasticsearch.
 [es-index-cleanup](lambda/es-index-cleanup)                         | Deletes up old indexes from an Elasticsearch cluster. See [this blog post](https://www.kdgregory.com/index.php?page=aws.loggingPipeline) for more info.
 [json-logging](lambda/json-logging)                                 | A module that will configure the Python logging framework for JSON output with Lambda-specific metadata.
+
+
+## Python
+
+Python modules that can be incorporated into larger programs. Each has a README that shows example usage.
+
+Module                                                      | Description
+------------------------------------------------------------|------------
+[aws_util](python/aws_util)                                 | General utilities (at present, only `create_client()`).
+[kinesis.KinesisWriter](python/kinesis)                     | Writes messages to a Kinesis stream, properly handling retries.
+[s3](python/s3)                                             | Utilities for working with S3, primarily multi-object actions.
+
+
+## Snippets
+
+Isolated pieces of code or configuration, stored in Markdown files, intended to be pasted elsewhere.
+
+* [AWS CLI](snippets/cli.md)
+* [IAM Roles/Policies](snippets/iam.md)
+* [Redshift queries](snippets/redshift.md)
 
 
 ## Terraform
