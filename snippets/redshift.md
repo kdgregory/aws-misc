@@ -463,6 +463,30 @@ where   query = X
 order   by parentid, nodeid;
 ```
 
+## Identify query and retrieve data scanned (Redshift Serverless)
+
+```
+\x
+```
+
+```
+select  *
+from    SYS_QUERY_HISTORY
+where   query_text like '%something%'
+and     query_text not like '%SYS_QUERY_HISTORY%'
+order   by start_time desc
+limit   1;
+```
+
+```
+select  table_name, sum(blocks_read), sum(duration)
+from    SYS_QUERY_DETAIL
+where   query_id = something
+group   by 1;
+```
+
+
+
 
 # Misc
 
