@@ -25,6 +25,7 @@ Invocation:
 
     assume-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ]
     run-with-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ] COMMAND
+    assume-org-role.py ACCOUNT_ID [ MFA_CODE ]
 
 Where:
 
@@ -32,6 +33,7 @@ Where:
                 the current account.
     ROLE_ARN    is the ARN of an assumable role from any account.
     MFA_CODE    is the 6-digit code from a virtual MFA device.
+    ACCOUNT_ID  is the account ID in which to assume OrganizationAccountAccessRole
     COMMAND     is an arbitrary command.
 
 Caveats:
@@ -185,6 +187,14 @@ if __name__ == "__main__":
         else:
             command = sys.argv[2:]
         run_with_role(command, False, sys.argv[1], **kwargs)
+    elif os.path.basename(__file__) == 'assume-org-role.py':
+        if len(sys.argv) < 2 or len(sys.argv) > 3:
+            print(__doc__)
+            sys.exit(1)
+        shell=os.environ.get('SHELL', '/bin/bash')
+        if len(sys.argv) == 3:
+            kwargs['mfaCode'] = sys.argv[2]
+        run_with_role([shell], True, f"arn:aws:iam::{sys.argv[1]}:role/OrganizationAccountAccessRole", **kwargs)
     else:
         print(__doc__)
         sys.exit(1)
