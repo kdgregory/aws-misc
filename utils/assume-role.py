@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 ################################################################################
-# Copyright 2019 Keith D Gregory
+# Copyright 2019-2025 Keith D Gregory
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,38 +16,24 @@
 ################################################################################
 
 """
-
-Assumes a role, with optional MFA code, and either starts a new shell or runs
-an arbitrary command using that role. Attempts to find the maximum allowed role
-duration, by starting at 12 hours and working down.
+Assumes a role and either starts a new shell or runs an arbitrary command using
+that role. 
 
 Invocation:
 
-    assume-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ]
-    run-with-role.py (ROLE_NAME | ROLE_ARN) [ MFA_CODE ] COMMAND
-    assume-org-role.py ACCOUNT_ID [ MFA_CODE ]
-
-Where:
-
-    ROLE_NAME   is the simple name (including path) of an assumable role in
-                the current account.
-    ROLE_ARN    is the ARN of an assumable role from any account.
-    MFA_CODE    is the 6-digit code from a virtual MFA device.
-    ACCOUNT_ID  is the account ID in which to assume OrganizationAccountAccessRole
-    COMMAND     is an arbitrary command.
+    assume-role.py [OPTIONS] ROLE_OR_ACCOUNT
+    run-with-role.py [OPTIONS] ROLE_OR_ACCOUNT COMMAND
 
 Caveats:
 
     Only supports virtual MFA devices (this is because hardware devices are
     identified differently).
 
-    For run-with-role, if your command name is a six-digit number, it will
-    be interpreted as an MFA code. Unlikely.
-
     For assume-role, if you load your AWS credentials in .bashrc, they'll
-    overwrite the assumed-role credentials. Don't do this.
+    overwrite the assumed-role credentials. Don't do that.
 """
 
+import argparse
 import boto3
 import json
 import os
@@ -56,28 +42,94 @@ import sys
 
 from botocore.exceptions import ClientError
 
+
+DEFAULT_DURATION = 8 * 3600
+ORG_ROLE = "OrganizationAccountAccessRole"
+
+arg_parser = None
 iam_client = boto3.client('iam')
 sts_client = boto3.client('sts')
 
+# this variable is a hack that lets us report the role duration from CLI invocation
+actualDuration = None
 
-def lookup_role_arn(roleName):
+
+def parse_args(prog, is_run_with, argv):
+    global arg_parser
+    arg_parser = argparse.ArgumentParser(prog=prog)
+    arg_parser.add_argument("--org",
+                            action="store_const",
+                            const=True,
+                            default=False,
+                            dest="assume_org_role",
+                            help=f"Assumes {ORG_ROLE} in the AWS account specified by ROLE_OR_ACCOUNT.")
+    arg_parser.add_argument("--mfa",
+                            metavar="MFA_CODE",
+                            dest="mfa_code",
+                            help="An MFA code, for roles that require one.")
+    arg_parser.add_argument("-d", "--duration",
+                            metavar="DURATION",
+                            dest="duration",
+                            help="""Duration (in seconds) that the role will be valid. If this exceeds the
+                                    allowed duration of the role, the program will repeatedly attempt to
+                                    assume the role, halving the duration each time.
+
+                                    If not specified, the default duration is 28800 (8 hours).
+                                    """)
+    arg_parser.add_argument("--region",
+                            metavar="REGION",
+                            dest="region",
+                            help="""If used, indicates that the region should be configured (using standard
+                                    AWS environment variables) for the invoked command/shell.
+                                    """)
+    arg_parser.add_argument("role",
+                            metavar="ROLE_OR_ACCOUNT",
+                            help="""The name or ARN of the role to assume, unless --org is specified, in
+                                    which case it's the 12-digit account ID of the target account.
+                                    """)
+    if is_run_with:
+        arg_parser.add_argument("command",
+                                metavar="COMMAND",
+                                nargs="+",
+                                help="""The command to invoke with using this role. This command is invoked
+                                        with exec(2), and has whatever environment your current process has,
+                                        along with AWS-specific variables for credentials.
+                                        """)
+    args = arg_parser.parse_args(argv)
+    if args.assume_org_role:
+        if not re.match(r"\d{12}$", args.role):
+           invocation_error("invalid account ID")
+        args.role = f"arn:aws:iam::{args.role}:role/{ORG_ROLE}"
+    if not args.duration:
+        args.duration = DEFAULT_DURATION
+    return args
+
+
+def invocation_error(message):
+    print(f"invocation error: {message}", file=sys.stderr)
+    print(file=sys.stderr)
+    arg_parser.print_help(file=sys.stderr)
+    sys.exit(1)
+
+
+def lookup_role_arn(role_name):
     """ Returns the ARN for a role with the given name, None if it doesn't exist.
 
         The name should include any path (eg: "/service-role/Foo", but it will be
         matched even if the path is omitted (although you may get the wrong role).
     """
-    lastSlash = roleName.rfind("/")
+    lastSlash = role_name.rfind("/")
     if lastSlash >= 0:
-        prefix = roleName[:lastSlash+1]
-        baseName = roleName[lastSlash+1:]
+        prefix = role_name[:lastSlash+1]
+        baseName = role_name[lastSlash+1:]
     else:
         prefix = "/"
-        baseName = roleName
+        baseName = role_name
     for page in iam_client.get_paginator('list_roles').paginate(PathPrefix=prefix):
         for role in page['Roles']:
             if baseName == role['RoleName']:
                 return role['Arn']
-    raise Exception(f'Unable to find role with name "{roleName}"')
+    raise Exception(f'Unable to find role with name "{role_name}"')
 
 
 def generate_session_name():
@@ -96,20 +148,17 @@ def generate_session_name():
     return str(invoker['Account'])
 
 
-# we'll try each of these until one works
-ROLE_DURATIONS = [ 12, 8, 4, 2, 1, .5, .25 ]
-
-# this variable is a hack that lets us report the role duration from CLI invocation
-actualDuration = None
-
-def assume_role(arnOrName, mfaCode=None):
+def assume_role(arn_or_name, duration, mfa_code=None):
     """ Assumes a role and returns its credentials.
 
         Arguments:
-            arnOrName       - May be passed either a role name in the current account
+            arn_or_name     - May be passed either a role name in the current account
                               (in which case the ARN is retrieved) or an ARN (which
                               may belong to the current account or another account).
-            mfaCode         - Optional: if present, the user's virtual MFA device is
+            duration        - The number of seconds for the session duration. If unable
+                              to assume the role for this duration, we will try again
+                              with half that value (but no less than 900 seconds).
+            mfa_code        - Optional: if present, the user's virtual MFA device is
                               retrieved and passed to the request with this code.
 
         Returns the credentials extracted from the AssumeRole API.
@@ -117,84 +166,64 @@ def assume_role(arnOrName, mfaCode=None):
         Also updates the global variable actualDuration, with the discovered duration.
     """
     global actualDuration
+    if duration < 900:
+        raise Exception(f"invalid duration ({duration}; must be at least 900 seconds")
     request = {}
     request['RoleSessionName'] = generate_session_name()
-    if re.fullmatch("arn:aws:iam::[0-9]*:role/.+", arnOrName):
-        request['RoleArn'] = arnOrName
+    if re.fullmatch("arn:aws:iam::[0-9]*:role/.+", arn_or_name):
+        request['RoleArn'] = arn_or_name
     else:
-        request['RoleArn'] = lookup_role_arn(arnOrName)
-    if mfaCode:
+        request['RoleArn'] = lookup_role_arn(arn_or_name)
+    if mfa_code:
         userArn = sts_client.get_caller_identity()['Arn']
         mfaArn = userArn.replace(":user/", ":mfa/")
         request['SerialNumber'] = mfaArn
-        request['TokenCode']    = mfaCode
-    for desiredDuration in ROLE_DURATIONS:
-        desiredDuration *= 3600
-        try:
-            request['DurationSeconds'] = desiredDuration
-            response = sts_client.assume_role(**request);
-            actualDuration = desiredDuration
-            return response['Credentials']
-        except ClientError as ex:
-            # it would be nice if the SDK reported duration errors with a different exception
-            if str(ex).find('requested DurationSeconds exceeds') >= 0:
-                pass
-            else:
-                raise
-    raise Exception("unable to find an acceptable duration (should never happen)")
+        request['TokenCode']    = mfa_code
+    try:
+        request['DurationSeconds'] = duration
+        response = sts_client.assume_role(**request);
+        actualDuration = duration
+        return response['Credentials']
+    except ClientError as ex:
+        # it would be nice if the SDK reported duration errors with a different exception
+        if str(ex).find('requested DurationSeconds exceeds') >= 0:
+            assume_role(arn_or_name, duration / 2, mfa_code=None)
+        else:
+            raise
 
 
-def run_with_role(command, printDuration, arnOrName, mfaCode=None):
+def run_with_role(command, print_duration, args):
     """ Runs an arbitrary command after assuming a role.
 
-        The "command" argument is an array that's passed to execvpe(); the first element
-        of this array will be reported as the command name.
+        command         - the command to run
+        print_duration  - if True, prints the duration of the session
+        args            - parsed command-line args
 
-        The "printDuration" argument is a boolean that indicates whether to print the
-        duration that the role will be assumed.
-
-        All other arguments are per assume_role().
+        Note: depending on the SDK there are multiple possible access/secret key envars. We try
+        to cover everything here.
     """
-    credentials = assume_role(arnOrName, mfaCode)
-    if printDuration:
+    credentials = assume_role(args.role, args.duration, args.mfa_code)
+    if print_duration:
         print(f'assumed role duration = {actualDuration} seconds ({actualDuration / 3600.0} hours)')
     new_env = os.environ
-    new_env['AWS_ACCESS_KEY']        = credentials['AccessKeyId']
-    new_env['AWS_ACCESS_KEY_ID']     = credentials['AccessKeyId']
-    new_env['AWS_SECRET_KEY']        = credentials['SecretAccessKey']
-    new_env['AWS_SECRET_ACCESS_KEY'] = credentials['SecretAccessKey']
-    new_env['AWS_SESSION_TOKEN']     = credentials['SessionToken']
+    new_env['AWS_ACCESS_KEY_ID']      = credentials['AccessKeyId']
+    new_env['AWS_SECRET_ACCESS_KEY']  = credentials['SecretAccessKey']
+    new_env['AWS_ACCESS_KEY']         = credentials['AccessKeyId']
+    new_env['AWS_SECRET_KEY']         = credentials['SecretAccessKey']
+    new_env['AWS_SESSION_TOKEN']      = credentials['SessionToken']
+    if args.region:
+        new_env['AWS_REGION']         = args.region
+        new_env['AWS_DEFAULT_REGION'] = args.region
+
     os.execvpe(command[0], command, new_env)
 
 
 if __name__ == "__main__":
-    kwargs = {}
-    if os.path.basename(__file__) == 'assume-role.py':
-        if len(sys.argv) < 2 or len(sys.argv) > 3:
-            print(__doc__)
-            sys.exit(1)
-        shell=os.environ.get('SHELL', '/bin/bash')
-        if len(sys.argv) == 3:
-            kwargs['mfaCode'] = sys.argv[2]
-        run_with_role([shell], True, sys.argv[1], **kwargs)
-    elif os.path.basename(__file__) == 'run-with-role.py':
-        if len(sys.argv) < 2:
-            print(__doc__)
-            sys.exit(1)
-        if re.match(r"^\d{6}$", sys.argv[2]):
-            kwargs['mfaCode'] = sys.argv[2]
-            command = sys.argv[3:]
-        else:
-            command = sys.argv[2:]
-        run_with_role(command, False, sys.argv[1], **kwargs)
-    elif os.path.basename(__file__) == 'assume-org-role.py':
-        if len(sys.argv) < 2 or len(sys.argv) > 3:
-            print(__doc__)
-            sys.exit(1)
-        shell=os.environ.get('SHELL', '/bin/bash')
-        if len(sys.argv) == 3:
-            kwargs['mfaCode'] = sys.argv[2]
-        run_with_role([shell], True, f"arn:aws:iam::{sys.argv[1]}:role/OrganizationAccountAccessRole", **kwargs)
+    prog = sys.argv[0]
+    is_run_with = prog.find("run-with-role") >= 0
+    args = parse_args(prog, is_run_with, sys.argv[1:])
+    if is_run_with:
+        run_with_role(args.command, False, args)
     else:
-        print(__doc__)
-        sys.exit(1)
+        shell=os.environ.get('SHELL', '/bin/bash')
+        run_with_role([shell], True, args)
