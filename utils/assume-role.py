@@ -70,6 +70,7 @@ def parse_args(prog, is_run_with, argv):
     arg_parser.add_argument("-d", "--duration",
                             metavar="DURATION",
                             dest="duration",
+                            type=int,
                             help="""Duration (in seconds) that the role will be valid. If this exceeds the
                                     allowed duration of the role, the program will repeatedly attempt to
                                     assume the role, halving the duration each time.
@@ -187,7 +188,7 @@ def assume_role(arn_or_name, duration, mfa_code=None):
     except ClientError as ex:
         # it would be nice if the SDK reported duration errors with a different exception
         if str(ex).find('requested DurationSeconds exceeds') >= 0:
-            assume_role(arn_or_name, duration / 2, mfa_code=None)
+            return assume_role(arn_or_name, int(duration / 2), mfa_code=None)
         else:
             raise
 
